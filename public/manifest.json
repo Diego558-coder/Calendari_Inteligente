@@ -1,0 +1,18 @@
+{
+  "name": "Calendario Dinámico IA",
+  "short_name": "MiHorario IA",
+  "description": "Organizador inteligente de horarios de universidad y trabajo con detección de horas libres y notificaciones",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#6366f1",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
+
