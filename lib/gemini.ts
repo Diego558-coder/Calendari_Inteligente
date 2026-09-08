@@ -20,7 +20,54 @@ export interface AnalyzeScheduleResult {
 }
 
 /**
- * Llama a la API de Google Gemini (Gemini Flash) para analizar la foto del horario
+ * Obtiene la lista de modelos disponibles para la clave de API del usuario
+ */
+async function getAvailableModels(apiKey: string): Promise<string[]> {
+  const fallbackModels = [
+    'gemini-2.0-flash',
+    'gemini-1.5-flash-latest',
+    'gemini-2.5-flash',
+    'gemini-2.0-flash-exp',
+    'gemini-1.5-flash-001',
+    'gemini-1.5-flash-002',
+    'gemini-2.5-flash-lite',
+    'gemini-1.5-pro',
+  ];
+
+  try {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`, {
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.warn('No se pudo listar modelos desde Google AI Studio:', errText);
+      return fallbackModels;
+    }
+
+    const data = await res.json();
+    const modelsList: any[] = data.models || [];
+
+    // Filtrar los que admiten generateContent
+    const validModels = modelsList
+      .filter((m) => m.supportedGenerationMethods?.includes('generateContent'))
+      .map((m) => m.name.replace(/^models\//, ''));
+
+    if (validModels.length === 0) return fallbackModels;
+
+    // Priorizar modelos Flash rápidos y multimodales
+    const flashModels = validModels.filter((name) => name.toLowerCase().includes('flash'));
+    const otherModels = validModels.filter((name) => !name.toLowerCase().includes('flash'));
+
+    return [...flashModels, ...otherModels];
+  } catch (err) {
+    console.warn('Error conectando con endpoint de modelos, usando lista predeterminada:', err);
+    return fallbackModels;
+  }
+}
+
+/**
+ * Llama a la API de Google Gemini para analizar la foto del horario
  */
 export async function analyzeScheduleImageWithGemini(
   base64Data: string,
@@ -28,15 +75,17 @@ export async function analyzeScheduleImageWithGemini(
   scheduleType: EventType,
   apiKey?: string
 ): Promise<AnalyzeScheduleResult> {
-  const resolvedKey = apiKey || process.env.GEMINI_API_KEY;
+  const rawKey = apiKey || process.env.GEMINI_API_KEY;
 
-  if (!resolvedKey) {
+  if (!rawKey || !rawKey.trim()) {
     return {
       success: false,
       events: [],
-      error: 'No se encontró la clave de API de Gemini. Configúrala en Ajustes o en el archivo .env.local (GEMINI_API_KEY).',
+      error: 'No se encontró la clave de API de Gemini. Configúrala en Ajustes (arriba a la derecha) o en las variables de entorno de Vercel (GEMINI_API_KEY).',
     };
   }
+
+  const cleanKey = rawKey.trim();
 
   // Schema estructurado para forzar respuesta JSON precisa
   const scheduleSchema = {
@@ -74,7 +123,7 @@ export async function analyzeScheduleImageWithGemini(
             },
             notes: {
               type: 'STRING',
-              description: 'Información adicional como grupo, créditos o modalidad presencial/virtual',
+              description: 'Información adicional como grupo, créditos o modalidad',
             },
           },
           required: ['title', 'dayOfWeek', 'startTime', 'endTime'],
@@ -93,17 +142,21 @@ Instrucciones estrictas:
 3. Si una materia o turno se repite varios días (por ejemplo "Lunes y Miércoles de 08:00 a 10:00"), crea un elemento separado para cada día.
 4. Normaliza SIEMPRE las horas al formato 24h "HH:mm" (por ejemplo: "8am" -> "08:00", "2pm" -> "14:00", "7:00 a 8:30" -> startTime: "07:00", endTime: "08:30").
 5. Si no se indica la hora de fin con exactitud pero dura un bloque estándar (ej. 1 hora o 2 horas), calcula la hora de fin sumando la duración habitual.
-6. Extrae los nombres de materias limpios, sin abreviaturas raras si se pueden entender, junto al aula y docente si están presentes.`;
+6. Extrae los nombres de materias limpios, sin abreviaturas raras si se pueden entender, junto al aula y docente si están presentes.
+7. Devuelve ÚNICAMENTE un objeto JSON válido con la propiedad "items": [{"title": "...", "dayOfWeek": "lunes|martes|...", "startTime": "HH:mm", "endTime": "HH:mm", "location": "...", "teacher": "..."}].`;
 
-  // Modelos a intentar (primero 2.5 flash, luego 1.5 flash como fallback)
-  const models = ['gemini-2.5-flash', 'gemini-1.5-flash'];
-  let lastError = '';
+  // 1. Descubrir los modelos reales soportados por la clave
+  const modelsToTry = await getAvailableModels(cleanKey);
+  console.log('Modelos disponibles para intentar:', modelsToTry.slice(0, 4));
 
-  for (const model of models) {
+  const errorsLogged: string[] = [];
+
+  for (const model of modelsToTry) {
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${resolvedKey}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${cleanKey}`;
 
-      const requestBody = {
+      // Intentar primero con responseSchema si está disponible
+      const requestBody: any = {
         systemInstruction: {
           parts: [{ text: systemPrompt }],
         },
@@ -111,7 +164,7 @@ Instrucciones estrictas:
           {
             parts: [
               {
-                text: `Por favor extrae todos los bloques de ${scheduleType === 'university' ? 'clases universitarias' : 'turnos de trabajo'} de esta imagen. Devuelve el JSON con la lista de items.`,
+                text: `Por favor extrae todos los bloques de ${scheduleType === 'university' ? 'clases universitarias' : 'turnos de trabajo'} de esta imagen. Devuelve el JSON con la propiedad "items".`,
               },
               {
                 inlineData: {
@@ -129,41 +182,66 @@ Instrucciones estrictas:
         },
       };
 
-      const response = await fetch(url, {
+      let response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'x-goog-api-key': cleanKey,
         },
         body: JSON.stringify(requestBody),
       });
 
+      // Si falla por esquema no soportado en algún modelo particular, reintentar sin responseSchema
+      if (!response.ok && response.status === 400) {
+        delete requestBody.generationConfig.responseSchema;
+        response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': cleanKey,
+          },
+          body: JSON.stringify(requestBody),
+        });
+      }
+
       if (!response.ok) {
         const errText = await response.text();
         console.warn(`Intento con ${model} falló (${response.status}):`, errText);
-        lastError = `Error de API (${response.status}): ${errText}`;
-        continue; // Intentar con el siguiente modelo
+        errorsLogged.push(`${model} (${response.status}): ${errText.slice(0, 120)}`);
+        continue; // Intentar con el siguiente modelo disponible
       }
 
       const data = await response.json();
       const rawResponseText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
 
       if (!rawResponseText) {
-        throw new Error('Gemini no retornó contenido legible.');
+        throw new Error(`El modelo ${model} no retornó texto legible.`);
       }
 
-      let parsedJson: { items: ExtractedEventRaw[] };
+      let parsedJson: { items?: ExtractedEventRaw[] } = {};
       try {
         parsedJson = JSON.parse(rawResponseText);
       } catch {
-        // En caso de que venga con bloques markdown
-        const cleaned = rawResponseText.replace(/```json/g, '').replace(/```/g, '').trim();
-        parsedJson = JSON.parse(cleaned);
+        // En caso de que venga envuelto en markdown ```json ... ```
+        const jsonMatch = rawResponseText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+        if (jsonMatch) {
+          parsedJson = JSON.parse(jsonMatch[1]);
+        } else {
+          // Intentar encontrar el primer '{' y el último '}'
+          const start = rawResponseText.indexOf('{');
+          const end = rawResponseText.lastIndexOf('}');
+          if (start !== -1 && end !== -1) {
+            parsedJson = JSON.parse(rawResponseText.substring(start, end + 1));
+          } else {
+            throw new Error('No se pudo parsear el formato JSON generado por el modelo.');
+          }
+        }
       }
 
-      const items = parsedJson.items || [];
+      const rawItems = parsedJson.items || (Array.isArray(parsedJson) ? parsedJson : []);
 
       // Convertir a ScheduleEvent estructurado
-      const formattedEvents: ScheduleEvent[] = items.map((item, index) => {
+      const formattedEvents: ScheduleEvent[] = rawItems.map((item: any, index: number) => {
         const cleanStart = formatTime(item.startTime);
         const cleanEnd = formatTime(item.endTime);
 
@@ -187,14 +265,14 @@ Instrucciones estrictas:
       };
     } catch (err: any) {
       console.error(`Error procesando con ${model}:`, err);
-      lastError = err.message || 'Error desconocido';
+      errorsLogged.push(`${model}: ${err.message || 'Error desconocido'}`);
     }
   }
 
   return {
     success: false,
     events: [],
-    error: `No se pudo procesar la imagen: ${lastError}`,
+    error: `No se pudo procesar la imagen con los modelos disponibles de Gemini. Detalles: ${errorsLogged.slice(0, 2).join(' | ')}`,
   };
 }
 
@@ -216,4 +294,3 @@ function formatTime(t: string): string {
   }
   return '08:00';
 }
-
