@@ -29,7 +29,6 @@ export async function POST(req: NextRequest) {
     }
 
     const type: EventType = scheduleType === 'work' ? 'work' : 'university';
-
     const cleanApiKey = (typeof apiKey === 'string' && apiKey.trim().length > 0) ? apiKey.trim() : undefined;
 
     const result = await analyzeScheduleImageWithGemini(
@@ -59,4 +58,3 @@ export async function POST(req: NextRequest) {
     );
   }
 }
-

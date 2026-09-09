@@ -1,20 +1,16 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { ScheduleEvent } from '@/types/schedule';
 import { generateICS } from '@/lib/schedule-utils';
 import { 
-  Bell, 
   Download, 
-  Smartphone, 
   CheckCircle2, 
-  AlertCircle, 
   Calendar, 
-  Volume2, 
   Clock, 
-  Share2, 
-  HelpCircle,
-  ExternalLink
+  Copy, 
+  RefreshCw, 
+  Zap 
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -22,69 +18,88 @@ interface NotificationManagerProps {
   events: ScheduleEvent[];
 }
 
+const STORAGE_KEY_SYNC_ID = 'mihorario_sync_id_v1';
+
 export const NotificationManager: React.FC<NotificationManagerProps> = ({ events }) => {
-  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
   const [alarmMinutes, setAlarmMinutes] = useState<number>(60);
-  const [testSent, setTestSent] = useState(false);
-  const [isSupported, setIsSupported] = useState(true);
+  const [syncId, setSyncId] = useState<string>('');
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [copiedLink, setCopiedLink] = useState<boolean>(false);
+  const [originUrl, setOriginUrl] = useState<string>('');
 
   useEffect(() => {
-    if (typeof window !== 'undefined' && 'Notification' in window) {
-      setNotificationPermission(Notification.permission);
-      setIsSupported(true);
-    } else {
-      setIsSupported(false);
+    if (typeof window !== 'undefined') {
+      setOriginUrl(window.location.host);
+      const savedId = localStorage.getItem(STORAGE_KEY_SYNC_ID);
+      if (savedId) setSyncId(savedId);
     }
   }, []);
 
-  // Solicitar permiso de notificaciones en el celular / navegador
-  const requestPermission = async () => {
-    if (!('Notification' in window)) {
-      alert('Las notificaciones no están soportadas en este navegador.');
-      return;
-    }
+  // Sincronizar automáticamente los eventos con el feed de la nube para iPhone
+  const syncWithCloudFeed = useCallback(async (forcedEvents?: ScheduleEvent[]) => {
+    const listToSync = forcedEvents || events;
+    if (listToSync.length === 0) return;
 
+    setIsSyncing(true);
     try {
-      const perm = await Notification.requestPermission();
-      setNotificationPermission(perm);
+      const savedId = localStorage.getItem(STORAGE_KEY_SYNC_ID) || undefined;
+      const res = await fetch('/api/calendar/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          syncId: savedId,
+          events: listToSync,
+        }),
+      });
 
-      if (perm === 'granted') {
-        confetti({ particleCount: 50, spread: 60 });
-        sendTestNotification();
+      if (res.ok) {
+        const data = await res.json();
+        if (data.syncId) {
+          setSyncId(data.syncId);
+          localStorage.setItem(STORAGE_KEY_SYNC_ID, data.syncId);
+        }
       }
     } catch (e) {
-      console.error('Error al pedir permiso:', e);
+      console.warn('Error sincronizando feed con la nube:', e);
+    } finally {
+      setIsSyncing(false);
     }
+  }, [events]);
+
+  // Sincronizar cuando cambien los eventos
+  useEffect(() => {
+    if (events.length > 0) {
+      syncWithCloudFeed(events);
+    }
+  }, [events, syncWithCloudFeed]);
+
+  const webcalUrl = syncId && originUrl ? `webcal://${originUrl}/api/calendar/feed/${syncId}` : '';
+  const httpsFeedUrl = syncId && originUrl ? `https://${originUrl}/api/calendar/feed/${syncId}` : '';
+
+  // Suscribirse directamente en Apple Calendar (dispara la app nativa de iOS)
+  const handleAppleCalendarSubscribe = () => {
+    if (!webcalUrl) {
+      syncWithCloudFeed().then(() => {
+        if (webcalUrl) window.location.href = webcalUrl;
+      });
+      return;
+    }
+    confetti({ particleCount: 70, spread: 60 });
+    window.location.href = webcalUrl;
   };
 
-  // Enviar una notificación de prueba instantánea
-  const sendTestNotification = () => {
-    if (notificationPermission !== 'granted') return;
-
-    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-      navigator.serviceWorker.ready.then((reg) => {
-        reg.showNotification('🔔 Recordatorio de MiHorario IA', {
-          body: `¡Tu notificación está lista! Te avisaremos ${alarmMinutes} minutos antes de cada clase o turno.`,
-          icon: '/icon.svg',
-          badge: '/icon.svg',
-          vibrate: [200, 100, 200],
-        } as any);
-      });
-    } else {
-      new Notification('🔔 Recordatorio de MiHorario IA', {
-        body: `¡Tu notificación está lista! Te avisaremos ${alarmMinutes} minutos antes de cada clase o turno.`,
-        icon: '/icon.svg',
-      });
-    }
-
-    setTestSent(true);
-    setTimeout(() => setTestSent(false), 5000);
+  const handleCopyLink = () => {
+    if (!httpsFeedUrl) return;
+    navigator.clipboard.writeText(httpsFeedUrl).then(() => {
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 3000);
+    });
   };
 
-  // Descargar el archivo .ics para el calendario del celular con alarma de 1 hora
+  // Descargar el archivo .ics manual tradicional
   const downloadICSFile = () => {
     if (events.length === 0) {
-      alert('Primero debes agregar o escanear tus horarios de universidad o trabajo.');
+      alert('Primero debes agregar o escanear tus horarios.');
       return;
     }
 
@@ -99,30 +114,117 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ events
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 
-    confetti({ particleCount: 70, spread: 60 });
+    confetti({ particleCount: 50, spread: 60 });
   };
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
       
-      {/* Tarjeta Principal: Sincronización con Celular */}
-      <div className="p-6 rounded-2xl bg-gradient-to-br from-indigo-900/30 via-slate-900 to-slate-900 border border-indigo-500/30 shadow-xl relative overflow-hidden">
+      {/* 🏆 TARJETA ESTRELLA: SUSCRIPCIÓN EN VIVO APPLE CALENDAR (Sin descargar archivos) */}
+      <div className="p-6 rounded-3xl bg-gradient-to-br from-indigo-950/80 via-slate-900 to-slate-900 border-2 border-indigo-500/40 shadow-2xl relative overflow-hidden">
+        
+        {/* Glow de fondo */}
+        <div className="absolute top-0 right-0 w-72 h-72 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-300 text-xs font-bold border border-indigo-500/30">
+              <Zap className="w-3.5 h-3.5 text-amber-400" />
+              Sincronización Automática en Vivo (iPhone / Mac / iPad)
+            </div>
+            
+            <h2 className="text-xl sm:text-2xl font-black text-white flex items-center gap-2 pt-1">
+              Suscripción a Apple Calendar
+            </h2>
+            
+            <p className="text-xs sm:text-sm text-slate-300 max-w-xl leading-relaxed">
+              <strong>Olvídate de descargar archivos cada vez:</strong> Tu iPhone se conecta a este calendario dinámico y <span className="text-amber-300 font-semibold">se actualiza solo en segundo plano</span> cada vez que agregues o cambies un horario, con tu alarma de <strong>1 hora antes</strong>.
+            </p>
+          </div>
+
+          {/* Botón Principal de Suscripción */}
+          <div className="flex flex-col gap-2 shrink-0">
+            <button
+              onClick={handleAppleCalendarSubscribe}
+              disabled={isSyncing}
+              className="flex items-center justify-center gap-2.5 bg-gradient-to-r from-indigo-500 via-indigo-600 to-violet-600 hover:from-indigo-600 hover:to-violet-700 text-white px-6 py-3.5 rounded-2xl text-sm font-bold shadow-xl shadow-indigo-600/30 transition-all transform active:scale-95 disabled:opacity-50"
+            >
+              <Calendar className="w-5 h-5 text-indigo-200" />
+              Suscribirme en mi iPhone
+            </button>
+
+            {syncId && (
+              <button
+                type="button"
+                onClick={handleCopyLink}
+                className="flex items-center justify-center gap-1.5 bg-slate-800/80 hover:bg-slate-700 text-slate-300 px-4 py-2 rounded-xl text-xs font-semibold border border-slate-700 transition-colors"
+              >
+                {copiedLink ? (
+                  <>
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                    <span className="text-emerald-300">¡Enlace Copiado!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5" />
+                    Copiar Enlace del Calendario
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Pasos súper sencillos para iPhone */}
+        <div className="mt-6 pt-5 border-t border-slate-800/80 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+          <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800">
+            <span className="font-bold text-indigo-400">Paso 1:</span>
+            <p className="text-slate-300 mt-1">Toca el botón <strong>"Suscribirme en mi iPhone"</strong> desde Safari.</p>
+          </div>
+
+          <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800">
+            <span className="font-bold text-indigo-400">Paso 2:</span>
+            <p className="text-slate-300 mt-1">iOS abrirá una ventana. Pulsa <strong>"Suscribirse"</strong> y luego <strong>"Añadir"</strong>.</p>
+          </div>
+
+          <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800">
+            <span className="font-bold text-emerald-400">¡Listo para siempre!</span>
+            <p className="text-slate-300 mt-1">Sonarán tus alarmas 1h antes y cualquier cambio nuevo en la web se actualizará solo.</p>
+          </div>
+        </div>
+
+        {/* Estado de sincronización en vivo */}
+        <div className="mt-4 flex items-center justify-between text-[11px] text-slate-400">
+          <span className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            {isSyncing ? 'Sincronizando cambios en la nube...' : 'Feed dinámico en la nube listo y activo'}
+          </span>
+          <button
+            onClick={() => syncWithCloudFeed()}
+            title="Forzar actualización en la nube"
+            className="text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-medium"
+          >
+            <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin' : ''}`} />
+            Sincronizar ahora
+          </button>
+        </div>
+      </div>
+
+      {/* Opción Secundaria: Descarga de archivo .ics manual */}
+      <div className="p-6 rounded-2xl bg-slate-900 border border-slate-800 shadow-xl space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2">
-              <div className="w-10 h-10 rounded-xl bg-indigo-600/30 text-indigo-400 flex items-center justify-center border border-indigo-500/40">
-                <Smartphone className="w-5 h-5" />
-              </div>
-              <div>
-                <h2 className="text-lg font-bold text-white">Avisos y Alarmas en tu Celular</h2>
-                <p className="text-xs text-slate-400">Recibe recordatorios con alarma en tu teléfono antes de cada actividad</p>
-              </div>
-            </div>
+            <h3 className="text-base font-bold text-white flex items-center gap-2">
+              <Download className="w-4 h-4 text-indigo-400" />
+              Descarga Manual Tradicional (.ics)
+            </h3>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Si prefieres guardar una copia fija sin suscripción automática
+            </p>
 
-            {/* Selector de tiempo de aviso */}
-            <div className="mt-4 flex items-center gap-2">
+            <div className="mt-3 flex items-center gap-2">
               <Clock className="w-4 h-4 text-amber-400" />
-              <span className="text-xs font-semibold text-slate-300">Avisarme con anticipación de:</span>
+              <span className="text-xs text-slate-300 font-medium">Anticipación de la alarma:</span>
               <select
                 value={alarmMinutes}
                 onChange={(e) => setAlarmMinutes(Number(e.target.value))}
@@ -130,128 +232,21 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ events
               >
                 <option value={15}>15 minutos antes</option>
                 <option value={30}>30 minutos antes</option>
-                <option value={60}>1 hora antes (Recomendado)</option>
+                <option value={60}>1 hora antes (Predeterminada)</option>
                 <option value={120}>2 horas antes</option>
               </select>
             </div>
           </div>
 
-          {/* Botón Descargar para Calendario Móvil */}
           <button
             onClick={downloadICSFile}
-            className="flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-600 hover:to-violet-700 text-white px-5 py-3 rounded-xl text-sm font-semibold shadow-lg shadow-indigo-500/30 transition-all transform active:scale-95 shrink-0"
+            className="flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2.5 rounded-xl text-xs font-semibold border border-slate-700 transition-colors shrink-0"
           >
-            <Download className="w-4 h-4" />
-            Descargar Calendario con Alarma (.ics)
+            <Download className="w-3.5 h-3.5" />
+            Descargar archivo .ics
           </button>
-        </div>
-
-        <div className="mt-4 pt-4 border-t border-slate-800 text-xs text-slate-400 flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-          <span>
-            Al abrir este archivo en tu celular (Google Calendar, Samsung Calendar o Apple Calendar), tus clases y turnos se sincronizarán con <strong>alarma automática de {alarmMinutes} minutos antes</strong>.
-          </span>
-        </div>
-      </div>
-
-      {/* Tarjeta de Notificaciones Web Push PWA */}
-      <div className="p-6 rounded-2xl bg-slate-900 border border-slate-800 shadow-xl space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center">
-              <Bell className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-base font-bold text-white">Notificaciones Web en el Navegador</h3>
-              <p className="text-xs text-slate-400">Notificaciones directas mientras navegas o con la app instalada</p>
-            </div>
-          </div>
-
-          {/* Estado del permiso */}
-          <span
-            className={`text-xs px-3 py-1 rounded-full font-semibold border ${
-              notificationPermission === 'granted'
-                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                : notificationPermission === 'denied'
-                ? 'bg-red-500/20 text-red-300 border-red-500/40'
-                : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-            }`}
-          >
-            {notificationPermission === 'granted'
-              ? '✓ Activadas'
-              : notificationPermission === 'denied'
-              ? '✗ Bloqueadas'
-              : 'Pendientes'}
-          </span>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3 pt-2">
-          {notificationPermission !== 'granted' ? (
-            <button
-              onClick={requestPermission}
-              className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all shadow-md shadow-indigo-600/20"
-            >
-              <Bell className="w-4 h-4" />
-              Permitir Notificaciones en este Dispositivo
-            </button>
-          ) : (
-            <button
-              onClick={sendTestNotification}
-              className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold border border-slate-700 transition-colors"
-            >
-              <Volume2 className="w-4 h-4 text-emerald-400" />
-              Enviar Alarma de Prueba al Celular
-            </button>
-          )}
-
-          {testSent && (
-            <span className="text-xs text-emerald-400 font-medium animate-fade-in flex items-center gap-1">
-              <CheckCircle2 className="w-4 h-4" />
-              ¡Notificación enviada! Revisa la barra de estado de tu teléfono.
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Guía Paso a Paso para Instalar en el Celular (PWA 100% Gratis) */}
-      <div className="p-6 rounded-2xl bg-slate-900 border border-slate-800 shadow-xl space-y-4">
-        <h3 className="text-base font-bold text-white flex items-center gap-2">
-          <HelpCircle className="w-4 h-4 text-indigo-400" />
-          Cómo tener la App instalada en tu Celular (Android y iPhone)
-        </h3>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs text-slate-300">
-          
-          {/* Android */}
-          <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 space-y-2">
-            <p className="font-bold text-emerald-400 flex items-center gap-1.5">
-              <Smartphone className="w-4 h-4" />
-              En Celulares Android (Google Chrome):
-            </p>
-            <ol className="list-decimal list-inside space-y-1.5 text-slate-400">
-              <li>Abre el enlace de tu app en <strong>Chrome</strong>.</li>
-              <li>Toca el botón de opciones <strong>(los 3 puntos arriba a la derecha)</strong>.</li>
-              <li>Selecciona <strong>"Instalar aplicación"</strong> o <strong>"Añadir a pantalla de inicio"</strong>.</li>
-              <li>¡Listo! Aparecerá el icono de la app en tu pantalla con acceso directo y soporte de notificaciones.</li>
-            </ol>
-          </div>
-
-          {/* iPhone / iOS */}
-          <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 space-y-2">
-            <p className="font-bold text-indigo-400 flex items-center gap-1.5">
-              <Smartphone className="w-4 h-4" />
-              En iPhones (Apple Safari):
-            </p>
-            <ol className="list-decimal list-inside space-y-1.5 text-slate-400">
-              <li>Abre la app en el navegador <strong>Safari</strong>.</li>
-              <li>Toca el botón de <strong>Compartir</strong> (el cuadrado con flecha hacia arriba abajo en la pantalla).</li>
-              <li>Desliza hacia abajo y pulsa <strong>"Añadir a la pantalla de inicio"</strong>.</li>
-              <li>Presiona <strong>"Añadir"</strong> en la esquina superior.</li>
-            </ol>
-          </div>
         </div>
       </div>
     </div>
   );
 };
-

@@ -48,20 +48,18 @@ async function getAvailableModels(apiKey: string): Promise<string[]> {
     const data = await res.json();
     const modelsList: any[] = data.models || [];
 
-    // Filtrar los que admiten generateContent
     const validModels = modelsList
       .filter((m) => m.supportedGenerationMethods?.includes('generateContent'))
       .map((m) => m.name.replace(/^models\//, ''));
 
     if (validModels.length === 0) return fallbackModels;
 
-    // Priorizar modelos Flash rápidos y multimodales
     const flashModels = validModels.filter((name) => name.toLowerCase().includes('flash'));
     const otherModels = validModels.filter((name) => !name.toLowerCase().includes('flash'));
 
     return [...flashModels, ...otherModels];
   } catch (err) {
-    console.warn('Error conectando con endpoint de modelos, usando lista predeterminada:', err);
+    console.warn('Error conectando con endpoint de modelos, usando fallback:', err);
     return fallbackModels;
   }
 }
@@ -81,13 +79,12 @@ export async function analyzeScheduleImageWithGemini(
     return {
       success: false,
       events: [],
-      error: 'No se encontró la clave de API de Gemini. Configúrala en Ajustes (arriba a la derecha) o en las variables de entorno de Vercel (GEMINI_API_KEY).',
+      error: 'No se encontró la clave de API de Gemini. Configúrala en Ajustes o en las variables de entorno de Vercel (GEMINI_API_KEY).',
     };
   }
 
   const cleanKey = rawKey.trim();
 
-  // Schema estructurado para forzar respuesta JSON precisa
   const scheduleSchema = {
     type: 'OBJECT',
     properties: {
@@ -145,17 +142,13 @@ Instrucciones estrictas:
 6. Extrae los nombres de materias limpios, sin abreviaturas raras si se pueden entender, junto al aula y docente si están presentes.
 7. Devuelve ÚNICAMENTE un objeto JSON válido con la propiedad "items": [{"title": "...", "dayOfWeek": "lunes|martes|...", "startTime": "HH:mm", "endTime": "HH:mm", "location": "...", "teacher": "..."}].`;
 
-  // 1. Descubrir los modelos reales soportados por la clave
   const modelsToTry = await getAvailableModels(cleanKey);
-  console.log('Modelos disponibles para intentar:', modelsToTry.slice(0, 4));
-
   const errorsLogged: string[] = [];
 
   for (const model of modelsToTry) {
     try {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${cleanKey}`;
 
-      // Intentar primero con responseSchema si está disponible
       const requestBody: any = {
         systemInstruction: {
           parts: [{ text: systemPrompt }],
@@ -207,8 +200,8 @@ Instrucciones estrictas:
       if (!response.ok) {
         const errText = await response.text();
         console.warn(`Intento con ${model} falló (${response.status}):`, errText);
-        errorsLogged.push(`${model} (${response.status}): ${errText.slice(0, 120)}`);
-        continue; // Intentar con el siguiente modelo disponible
+        errorsLogged.push(`${model} (${response.status})`);
+        continue;
       }
 
       const data = await response.json();
@@ -222,12 +215,10 @@ Instrucciones estrictas:
       try {
         parsedJson = JSON.parse(rawResponseText);
       } catch {
-        // En caso de que venga envuelto en markdown ```json ... ```
         const jsonMatch = rawResponseText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
         if (jsonMatch) {
           parsedJson = JSON.parse(jsonMatch[1]);
         } else {
-          // Intentar encontrar el primer '{' y el último '}'
           const start = rawResponseText.indexOf('{');
           const end = rawResponseText.lastIndexOf('}');
           if (start !== -1 && end !== -1) {
@@ -240,7 +231,6 @@ Instrucciones estrictas:
 
       const rawItems = parsedJson.items || (Array.isArray(parsedJson) ? parsedJson : []);
 
-      // Convertir a ScheduleEvent estructurado
       const formattedEvents: ScheduleEvent[] = rawItems.map((item: any, index: number) => {
         const cleanStart = formatTime(item.startTime);
         const cleanEnd = formatTime(item.endTime);
@@ -265,20 +255,17 @@ Instrucciones estrictas:
       };
     } catch (err: any) {
       console.error(`Error procesando con ${model}:`, err);
-      errorsLogged.push(`${model}: ${err.message || 'Error desconocido'}`);
+      errorsLogged.push(`${model}: ${err.message || 'Error'}`);
     }
   }
 
   return {
     success: false,
     events: [],
-    error: `No se pudo procesar la imagen con los modelos disponibles de Gemini. Detalles: ${errorsLogged.slice(0, 2).join(' | ')}`,
+    error: `No se pudo procesar con los modelos disponibles. Modelos probados: ${errorsLogged.join(', ')}`,
   };
 }
 
-/**
- * Asegura formato HH:mm válido
- */
 function formatTime(t: string): string {
   if (!t) return '08:00';
   const clean = t.trim();

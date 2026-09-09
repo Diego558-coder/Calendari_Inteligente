@@ -60,6 +60,7 @@ export const PhotoUploader: React.FC<PhotoUploaderProps> = ({
 
     const reader = new FileReader();
     reader.onload = (event) => {
+      setImagePreview(event.target?.result as string);
       const rawDataUrl = event.target?.result as string;
       const img = new Image();
       img.onload = () => {
