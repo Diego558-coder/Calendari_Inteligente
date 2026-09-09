@@ -10,12 +10,21 @@ import {
   Clock, 
   Copy, 
   RefreshCw, 
-  Zap 
+  Zap,
+  Smartphone,
+  Info,
+  Check
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
 interface NotificationManagerProps {
   events: ScheduleEvent[];
+}
+
+interface SubscriberStatus {
+  enrolled: boolean;
+  lastPing: number | null;
+  userAgent: string | null;
 }
 
 const STORAGE_KEY_SYNC_ID = 'mihorario_sync_id_v1';
@@ -26,12 +35,27 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ events
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [copiedLink, setCopiedLink] = useState<boolean>(false);
   const [originUrl, setOriginUrl] = useState<string>('');
+  const [subscriberStatus, setSubscriberStatus] = useState<SubscriberStatus | null>(null);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
       setOriginUrl(window.location.host);
       const savedId = localStorage.getItem(STORAGE_KEY_SYNC_ID);
       if (savedId) setSyncId(savedId);
+    }
+  }, []);
+
+  // Consultar estado de inscripción del dispositivo
+  const checkSubscriberStatus = useCallback(async (id: string) => {
+    if (!id) return;
+    try {
+      const res = await fetch(`/api/calendar/status/${id}`);
+      if (res.ok) {
+        const data: SubscriberStatus = await res.json();
+        setSubscriberStatus(data);
+      }
+    } catch (e) {
+      console.warn('Error verificando suscriptores:', e);
     }
   }, []);
 
@@ -57,6 +81,7 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ events
         if (data.syncId) {
           setSyncId(data.syncId);
           localStorage.setItem(STORAGE_KEY_SYNC_ID, data.syncId);
+          checkSubscriberStatus(data.syncId);
         }
       }
     } catch (e) {
@@ -64,7 +89,7 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ events
     } finally {
       setIsSyncing(false);
     }
-  }, [events]);
+  }, [events, checkSubscriberStatus]);
 
   // Sincronizar cuando cambien los eventos
   useEffect(() => {
@@ -72,6 +97,15 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ events
       syncWithCloudFeed(events);
     }
   }, [events, syncWithCloudFeed]);
+
+  // Verificar estado del suscriptor periódicamente
+  useEffect(() => {
+    if (syncId) {
+      checkSubscriberStatus(syncId);
+      const interval = setInterval(() => checkSubscriberStatus(syncId), 15000);
+      return () => clearInterval(interval);
+    }
+  }, [syncId, checkSubscriberStatus]);
 
   const webcalUrl = syncId && originUrl ? `webcal://${originUrl}/api/calendar/feed/${syncId}` : '';
   const httpsFeedUrl = syncId && originUrl ? `https://${originUrl}/api/calendar/feed/${syncId}` : '';
@@ -120,7 +154,7 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ events
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
       
-      {/* 🏆 TARJETA ESTRELLA: SUSCRIPCIÓN EN VIVO APPLE CALENDAR (Sin descargar archivos) */}
+      {/* 🏆 TARJETA ESTRELLA: SUSCRIPCIÓN EN VIVO APPLE CALENDAR */}
       <div className="p-6 rounded-3xl bg-gradient-to-br from-indigo-950/80 via-slate-900 to-slate-900 border-2 border-indigo-500/40 shadow-2xl relative overflow-hidden">
         
         {/* Glow de fondo */}
@@ -130,7 +164,7 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ events
           <div className="space-y-1">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-300 text-xs font-bold border border-indigo-500/30">
               <Zap className="w-3.5 h-3.5 text-amber-400" />
-              Sincronización Automática en Vivo (iPhone / Mac / iPad)
+              Sincronización Automática en Vivo (iPhone / Apple Calendar)
             </div>
             
             <h2 className="text-xl sm:text-2xl font-black text-white flex items-center gap-2 pt-1">
@@ -138,11 +172,11 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ events
             </h2>
             
             <p className="text-xs sm:text-sm text-slate-300 max-w-xl leading-relaxed">
-              <strong>Olvídate de descargar archivos cada vez:</strong> Tu iPhone se conecta a este calendario dinámico y <span className="text-amber-300 font-semibold">se actualiza solo en segundo plano</span> cada vez que agregues o cambies un horario, con tu alarma de <strong>1 hora antes</strong>.
+              <strong>Olvídate de descargar archivos:</strong> Tu iPhone se conecta a este calendario y <span className="text-amber-300 font-semibold">se actualiza solo en segundo plano</span> cada vez que agregues o cambies un horario, con tu alarma de <strong>1 hora antes</strong>.
             </p>
           </div>
 
-          {/* Botón Principal de Suscripción */}
+          {/* Botones de acción */}
           <div className="flex flex-col gap-2 shrink-0">
             <button
               onClick={handleAppleCalendarSubscribe}
@@ -167,7 +201,7 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ events
                 ) : (
                   <>
                     <Copy className="w-3.5 h-3.5" />
-                    Copiar Enlace del Calendario
+                    Copiar Enlace de Suscripción
                   </>
                 )}
               </button>
@@ -175,38 +209,73 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ events
           </div>
         </div>
 
-        {/* Pasos súper sencillos para iPhone */}
-        <div className="mt-6 pt-5 border-t border-slate-800/80 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+        {/* 📊 PANEL DE ESTADO: ¿HAY DISPOSITIVO INSCRITO? */}
+        <div className="mt-5 p-4 rounded-2xl bg-slate-950/80 border border-slate-800/90 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+              subscriberStatus?.enrolled
+                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                : 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
+            }`}>
+              {subscriberStatus?.enrolled ? (
+                <CheckCircle2 className="w-5 h-5" />
+              ) : (
+                <Smartphone className="w-5 h-5 animate-pulse" />
+              )}
+            </div>
+
+            <div>
+              <p className="text-xs font-bold text-white flex items-center gap-2">
+                Estado del Dispositivo:
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                  subscriberStatus?.enrolled
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                    : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                }`}>
+                  {subscriberStatus?.enrolled ? '✓ DISPOSITIVO CONECTADO' : 'PENDIENTE DE CONEXIÓN'}
+                </span>
+              </p>
+
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                {subscriberStatus?.enrolled ? (
+                  <>
+                    Tu iPhone ya está sincronizado. Última comprobación:{' '}
+                    <strong className="text-slate-200">
+                      {subscriberStatus.lastPing ? new Date(subscriberStatus.lastPing).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Reciente'}
+                    </strong>
+                  </>
+                ) : (
+                  'Aún no se ha detectado ningún iPhone suscrito. Toca "Suscribirme en mi iPhone" desde Safari.'
+                )}
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={() => syncId && checkSubscriberStatus(syncId)}
+            className="text-[11px] text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-medium px-2.5 py-1 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 transition-colors shrink-0"
+          >
+            <RefreshCw className="w-3 h-3" />
+            Comprobar ahora
+          </button>
+        </div>
+
+        {/* Pasos sencillos */}
+        <div className="mt-5 pt-4 border-t border-slate-800/80 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
           <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800">
             <span className="font-bold text-indigo-400">Paso 1:</span>
-            <p className="text-slate-300 mt-1">Toca el botón <strong>"Suscribirme en mi iPhone"</strong> desde Safari.</p>
+            <p className="text-slate-300 mt-1">Abre este enlace desde <strong>Safari</strong> en tu iPhone.</p>
           </div>
 
           <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800">
             <span className="font-bold text-indigo-400">Paso 2:</span>
-            <p className="text-slate-300 mt-1">iOS abrirá una ventana. Pulsa <strong>"Suscribirse"</strong> y luego <strong>"Añadir"</strong>.</p>
+            <p className="text-slate-300 mt-1">Toca el botón morado <strong>"Suscribirme en mi iPhone"</strong>.</p>
           </div>
 
           <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800">
-            <span className="font-bold text-emerald-400">¡Listo para siempre!</span>
-            <p className="text-slate-300 mt-1">Sonarán tus alarmas 1h antes y cualquier cambio nuevo en la web se actualizará solo.</p>
+            <span className="font-bold text-indigo-400">Paso 3:</span>
+            <p className="text-slate-300 mt-1">En la ventana de iOS, pulsa <strong>"Suscribirse"</strong> y luego <strong>"Añadir"</strong>.</p>
           </div>
-        </div>
-
-        {/* Estado de sincronización en vivo */}
-        <div className="mt-4 flex items-center justify-between text-[11px] text-slate-400">
-          <span className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            {isSyncing ? 'Sincronizando cambios en la nube...' : 'Feed dinámico en la nube listo y activo'}
-          </span>
-          <button
-            onClick={() => syncWithCloudFeed()}
-            title="Forzar actualización en la nube"
-            className="text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-medium"
-          >
-            <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin' : ''}`} />
-            Sincronizar ahora
-          </button>
         </div>
       </div>
 
@@ -219,7 +288,7 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ events
               Descarga Manual Tradicional (.ics)
             </h3>
             <p className="text-xs text-slate-400 mt-0.5">
-              Si prefieres guardar una copia fija sin suscripción automática
+              Si prefieres guardar una copia fija de tus horarios sin suscripción automática
             </p>
 
             <div className="mt-3 flex items-center gap-2">

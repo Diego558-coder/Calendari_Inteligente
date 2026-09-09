@@ -24,10 +24,28 @@ export async function GET(
     });
 
     let events: ScheduleEvent[] = [];
+    let existingData: any = {};
 
     if (res.ok) {
       const record = await res.json();
-      events = record?.data?.events || [];
+      existingData = record?.data || {};
+      events = existingData?.events || [];
+
+      // Registrar que un dispositivo (iPhone / Mac / iPad) acaba de consultar el calendario
+      const userAgent = req.headers.get('user-agent') || 'Dispositivo Apple / Safari';
+      fetch(`${CLOUD_STORAGE_BASE}/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'MiHorario_Sync',
+          data: {
+            ...existingData,
+            lastSubscriberPing: Date.now(),
+            subscriberUserAgent: userAgent,
+            enrolled: true,
+          },
+        }),
+      }).catch((e) => console.warn('No se pudo registrar ping de dispositivo:', e));
     } else {
       console.warn(`No se encontró el feed de calendario para ID: ${id}`);
     }
@@ -56,4 +74,3 @@ export async function GET(
     return new NextResponse('Error al generar calendario', { status: 500 });
   }
 }
-
