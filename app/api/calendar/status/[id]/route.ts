@@ -39,3 +39,4 @@ export async function GET(
     return NextResponse.json({ enrolled: false, error: err.message });
   }
 }
+
