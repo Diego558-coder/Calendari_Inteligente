@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   X, 
   Key, 
@@ -38,6 +38,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 }) => {
   const [inputKey, setInputKey] = useState(apiKey);
   const [savedSuccess, setSavedSuccess] = useState(false);
+
+  useEffect(() => {
+    setInputKey(apiKey);
+  }, [apiKey, isOpen]);
 
   if (!isOpen) return null;
 

@@ -45,6 +45,22 @@ const actionSchema = {
   required: ['reply', 'actions'],
 };
 
+async function getChatModels(apiKey: string): Promise<string[]> {
+  const fallback = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+  try {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+    if (!response.ok) return fallback;
+    const data = await response.json();
+    const models = (data.models || [])
+      .filter((model: any) => model.supportedGenerationMethods?.includes('generateContent'))
+      .map((model: any) => model.name.replace(/^models\//, ''))
+      .filter((model: string) => model.includes('flash'));
+    return models.length > 0 ? models : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 function parseJson(text: string): { reply: string; actions: ChatAction[] } {
   try {
     return JSON.parse(text);
@@ -88,22 +104,42 @@ Eventos actuales:
 ${JSON.stringify(events)}
 Pedido del usuario: ${message}`;
 
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-      body: JSON.stringify({
+    let data: any = null;
+    let lastStatus = 502;
+    for (const model of await getChatModels(apiKey)) {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      const requestBody: any = {
         systemInstruction: { parts: [{ text: prompt }] },
         contents: [{ parts: [{ text: message }] }],
         generationConfig: { temperature: 0.1, responseMimeType: 'application/json', responseSchema: actionSchema },
-      }),
-    });
-
-    if (!response.ok) {
-      const detail = await response.text();
-      return NextResponse.json({ success: false, error: `Gemini no pudo procesar el pedido (${response.status}).`, detail }, { status: 502 });
+      };
+      let response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+        body: JSON.stringify(requestBody),
+      });
+      if (!response.ok && response.status === 400) {
+        delete requestBody.generationConfig.responseSchema;
+        response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+          body: JSON.stringify(requestBody),
+        });
+      }
+      lastStatus = response.status;
+      if (response.ok) {
+        data = await response.json();
+        break;
+      }
     }
 
-    const data = await response.json();
+    if (!data) {
+      const error = lastStatus === 401 || lastStatus === 403
+        ? 'La clave de Gemini no es válida o no tiene permisos para usar el modelo.'
+        : `Gemini no pudo procesar el pedido (${lastStatus}). Revisa la cuota y los modelos habilitados.`;
+      return NextResponse.json({ success: false, error }, { status: 502 });
+    }
+
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!text) throw new Error('Gemini no devolvió una respuesta.');
     const parsed = parseJson(text);
