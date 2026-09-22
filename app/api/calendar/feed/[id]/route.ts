@@ -31,7 +31,6 @@ export async function GET(
       existingData = record?.data || {};
       events = existingData?.events || [];
 
-      // Registrar que un dispositivo (iPhone / Mac / iPad) acaba de consultar el calendario
       const userAgent = req.headers.get('user-agent') || 'Dispositivo Apple / Safari';
       fetch(`${CLOUD_STORAGE_BASE}/${id}`, {
         method: 'PUT',
@@ -45,15 +44,12 @@ export async function GET(
             enrolled: true,
           },
         }),
-      }).catch((e) => console.warn('No se pudo registrar ping de dispositivo:', e));
+      }).catch((error) => console.warn('No se pudo registrar ping de dispositivo:', error));
     } else {
       console.warn(`No se encontró el feed de calendario para ID: ${id}`);
     }
 
-    // Generar el contenido del calendario con alarma de 1 hora antes (-PT60M)
     const baseIcs = generateICS(events, 60);
-
-    // Agregar directivas de autorefresco para Apple Calendar (1 hora)
     const enhancedIcs = baseIcs.replace(
       'X-WR-TIMEZONE:America/Bogota',
       'X-WR-TIMEZONE:America/Bogota\r\nX-PUBLISHED-TTL:PT1H\r\nREFRESH-INTERVAL;VALUE=DURATION:PT1H'
@@ -65,8 +61,8 @@ export async function GET(
         'Content-Type': 'text/calendar; charset=utf-8',
         'Content-Disposition': 'inline; filename="mihorario.ics"',
         'Cache-Control': 'no-cache, no-store, max-age=0, must-revalidate',
-        'Pragma': 'no-cache',
-        'Expires': '0',
+        Pragma: 'no-cache',
+        Expires: '0',
       },
     });
   } catch (err: any) {

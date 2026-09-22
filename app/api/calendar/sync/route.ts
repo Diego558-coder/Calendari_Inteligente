@@ -18,7 +18,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Si ya tenemos un syncId, intentar actualizar el objeto existente
     if (syncId && syncId.trim().length > 0) {
       try {
         const updateResp = await fetch(`${CLOUD_STORAGE_BASE}/${syncId}`, {
@@ -26,10 +25,7 @@ export async function POST(req: NextRequest) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             name: 'MiHorario_Sync',
-            data: {
-              events,
-              updatedAt: Date.now(),
-            },
+            data: { events, updatedAt: Date.now() },
           }),
         });
 
@@ -40,21 +36,17 @@ export async function POST(req: NextRequest) {
             message: 'Horarios actualizados en la nube.',
           });
         }
-      } catch (e) {
-        console.warn('Error al actualizar por ID, creando nuevo registro:', e);
+      } catch (error) {
+        console.warn('Error al actualizar por ID, creando nuevo registro:', error);
       }
     }
 
-    // Crear un nuevo registro en la nube para la suscripción
     const createResp = await fetch(CLOUD_STORAGE_BASE, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: 'MiHorario_Sync',
-        data: {
-          events,
-          createdAt: Date.now(),
-        },
+        data: { events, createdAt: Date.now() },
       }),
     });
 
@@ -78,4 +70,3 @@ export async function POST(req: NextRequest) {
     );
   }
 }
-

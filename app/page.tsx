@@ -9,6 +9,7 @@ import { NotificationManager } from '@/components/NotificationManager';
 import { PhotoUploader } from '@/components/PhotoUploader';
 import { EventModal } from '@/components/EventModal';
 import { SettingsModal } from '@/components/SettingsModal';
+import { ScheduleChat } from '@/components/ScheduleChat';
 import { DayOfWeek, ScheduleEvent } from '@/types/schedule';
 import { 
   calculateFreeTimeSlots, 
@@ -376,6 +377,12 @@ export default function HomePage() {
         onClearAllData={() => updateEvents([])}
         events={events}
         onImportEvents={(imported) => updateEvents(imported)}
+      />
+
+      <ScheduleChat
+        events={events}
+        apiKey={userApiKey}
+        onApplyEvents={updateEvents}
       />
     </div>
   );
