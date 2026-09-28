@@ -45,8 +45,26 @@ const actionSchema = {
   required: ['reply', 'actions'],
 };
 
-const CHAT_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash'];
-const MODEL_TIMEOUT_MS = 7000;
+const FALLBACK_MODELS = ['gemini-2.0-flash', 'gemini-1.5-flash-latest', 'gemini-2.5-flash'];
+const MAX_MODELS_TO_TRY = 3;
+const MODEL_TIMEOUT_MS = 6000;
+
+async function getChatModels(apiKey: string): Promise<string[]> {
+  try {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`, {
+      signal: AbortSignal.timeout(4000),
+    });
+    if (!response.ok) return FALLBACK_MODELS;
+    const data = await response.json();
+    const models = (data.models || [])
+      .filter((model: any) => model.supportedGenerationMethods?.includes('generateContent'))
+      .map((model: any) => model.name.replace(/^models\//, ''))
+      .filter((model: string) => model.toLowerCase().includes('flash'));
+    return models.length > 0 ? models : FALLBACK_MODELS;
+  } catch {
+    return FALLBACK_MODELS;
+  }
+}
 
 function parseJson(text: string): { reply: string; actions: ChatAction[] } {
   try {
@@ -93,7 +111,8 @@ Pedido del usuario: ${message}`;
 
     let data: any = null;
     let lastStatus = 502;
-    for (const model of CHAT_MODELS) {
+    const modelsToTry = (await getChatModels(apiKey)).slice(0, MAX_MODELS_TO_TRY);
+    for (const model of modelsToTry) {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
       const requestBody: any = {
         systemInstruction: { parts: [{ text: prompt }] },
