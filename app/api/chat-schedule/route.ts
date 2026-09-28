@@ -36,6 +36,7 @@ const actionSchema = {
               teacher: { type: 'STRING' },
               notes: { type: 'STRING' },
             },
+            required: ['title', 'type', 'dayOfWeek', 'startTime'],
           },
         },
         required: ['type'],
