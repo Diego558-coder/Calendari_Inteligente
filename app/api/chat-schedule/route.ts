@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { EventType, ScheduleEvent } from '@/types/schedule';
-import { normalizeDay } from '@/lib/schedule-utils';
+import { minutesToTime, normalizeDay, timeToMinutes } from '@/lib/schedule-utils';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -45,21 +45,8 @@ const actionSchema = {
   required: ['reply', 'actions'],
 };
 
-async function getChatModels(apiKey: string): Promise<string[]> {
-  const fallback = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
-  try {
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
-    if (!response.ok) return fallback;
-    const data = await response.json();
-    const models = (data.models || [])
-      .filter((model: any) => model.supportedGenerationMethods?.includes('generateContent'))
-      .map((model: any) => model.name.replace(/^models\//, ''))
-      .filter((model: string) => model.includes('flash'));
-    return models.length > 0 ? models : fallback;
-  } catch {
-    return fallback;
-  }
-}
+const CHAT_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash'];
+const MODEL_TIMEOUT_MS = 7000;
 
 function parseJson(text: string): { reply: string; actions: ChatAction[] } {
   try {
@@ -106,30 +93,36 @@ Pedido del usuario: ${message}`;
 
     let data: any = null;
     let lastStatus = 502;
-    for (const model of await getChatModels(apiKey)) {
+    for (const model of CHAT_MODELS) {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
       const requestBody: any = {
         systemInstruction: { parts: [{ text: prompt }] },
         contents: [{ parts: [{ text: message }] }],
         generationConfig: { temperature: 0.1, responseMimeType: 'application/json', responseSchema: actionSchema },
       };
-      let response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-        body: JSON.stringify(requestBody),
-      });
-      if (!response.ok && response.status === 400) {
-        delete requestBody.generationConfig.responseSchema;
-        response = await fetch(url, {
+      try {
+        let response = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
           body: JSON.stringify(requestBody),
+          signal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
         });
-      }
-      lastStatus = response.status;
-      if (response.ok) {
-        data = await response.json();
-        break;
+        if (!response.ok && response.status === 400) {
+          delete requestBody.generationConfig.responseSchema;
+          response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+            body: JSON.stringify(requestBody),
+            signal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
+          });
+        }
+        lastStatus = response.status;
+        if (response.ok) {
+          data = await response.json();
+          break;
+        }
+      } catch {
+        lastStatus = 504;
       }
     }
 
@@ -147,10 +140,14 @@ Pedido del usuario: ${message}`;
     return NextResponse.json({
       success: true,
       reply: parsed.reply || 'Listo.',
-      actions: (parsed.actions || []).map((action) => ({
-        ...action,
-        ...(action.event ? { event: cleanEvent(action.event) } : {}),
-      })),
+      actions: (parsed.actions || []).map((action) => {
+        if (!action.event) return action;
+        const event = cleanEvent(action.event);
+        if (action.type === 'add' && event.startTime && !event.endTime) {
+          event.endTime = minutesToTime(timeToMinutes(event.startTime) + 60);
+        }
+        return { ...action, event };
+      }),
     });
   } catch (error: any) {
     console.error('Error en /api/chat-schedule:', error);
