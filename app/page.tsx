@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Navbar, ActiveTab } from '@/components/Navbar';
 import { WeeklyCalendar } from '@/components/WeeklyCalendar';
 import { DailyAgendaView } from '@/components/DailyAgendaView';
@@ -30,9 +30,7 @@ import {
   Plus
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
-
-const STORAGE_KEY_EVENTS = 'mihorario_events_v1';
-const STORAGE_KEY_APIKEY = 'mihorario_gemini_key_v1';
+import { storage } from '@/lib/storage';
 
 export default function HomePage() {
   const [events, setEvents] = useState<ScheduleEvent[]>([]);
@@ -46,50 +44,52 @@ export default function HomePage() {
   const [selectedEvent, setSelectedEvent] = useState<ScheduleEvent | null>(null);
   const [slotToAdd, setSlotToAdd] = useState<{ day: DayOfWeek; startTime: string } | null>(null);
 
-  // Cargar datos de LocalStorage
+  // Cargar datos de IndexedDB (localForage)
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const savedEvents = localStorage.getItem(STORAGE_KEY_EVENTS);
-      if (savedEvents) {
+    let mounted = true;
+    const loadData = async () => {
+      if (typeof window !== 'undefined') {
         try {
-          const parsed = JSON.parse(savedEvents);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            setEvents(parsed);
-          } else {
-            // Cargar datos demo por defecto para que la app luzca lista y viva
-            setEvents(DEMO_EVENTS);
+          const [savedEvents, savedKey] = await Promise.all([
+            storage.getEvents(),
+            storage.getApiKey(),
+          ]);
+          if (mounted) {
+            if (savedEvents.length > 0) {
+              setEvents(savedEvents);
+            } else {
+              setEvents(DEMO_EVENTS);
+            }
+            if (savedKey) setUserApiKey(savedKey);
           }
         } catch {
-          setEvents(DEMO_EVENTS);
+          if (mounted) setEvents(DEMO_EVENTS);
         }
-      } else {
-        setEvents(DEMO_EVENTS);
       }
+    };
+    loadData();
+    return () => { mounted = false; };
+  }, []);
 
-      const savedKey = localStorage.getItem(STORAGE_KEY_APIKEY);
-      if (savedKey) setUserApiKey(savedKey);
+  // Guardar en IndexedDB cada vez que cambien los eventos
+  const updateEvents = useCallback(async (newEvents: ScheduleEvent[]) => {
+    setEvents(newEvents);
+    if (typeof window !== 'undefined') {
+      await storage.setEvents(newEvents);
     }
   }, []);
 
-  // Guardar en LocalStorage cada vez que cambien los eventos
-  const updateEvents = (newEvents: ScheduleEvent[]) => {
-    setEvents(newEvents);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(STORAGE_KEY_EVENTS, JSON.stringify(newEvents));
-    }
-  };
-
-  const handleSaveApiKey = (key: string) => {
+  const handleSaveApiKey = useCallback(async (key: string) => {
     setUserApiKey(key);
     if (typeof window !== 'undefined') {
-      localStorage.setItem(STORAGE_KEY_APIKEY, key);
+      await storage.setApiKey(key);
     }
-  };
+  }, []);
 
-  // Cálculos reactivos de conflictos, horas libres y métricas
-  const conflicts = detectConflicts(events);
-  const freeSlots = calculateFreeTimeSlots(events);
-  const stats = calculateStats(events, freeSlots, conflicts);
+  // Cálculos reactivos de conflictos, horas libres y métricas (memoizados para rendimiento)
+  const conflicts = useMemo(() => detectConflicts(events), [events]);
+  const freeSlots = useMemo(() => calculateFreeTimeSlots(events), [events]);
+  const stats = useMemo(() => calculateStats(events, freeSlots, conflicts), [events, freeSlots, conflicts]);
 
   // Monitor en segundo plano para notificar 1 hora antes
   useEffect(() => {
@@ -147,29 +147,29 @@ export default function HomePage() {
   }, [events]);
 
   // Manejadores de eventos
-  const handleEventsExtracted = (extractedList: ScheduleEvent[]) => {
+  const handleEventsExtracted = useCallback((extractedList: ScheduleEvent[]) => {
     updateEvents([...events, ...extractedList]);
     confetti({ particleCount: 100, spread: 80, origin: { y: 0.5 } });
-  };
+  }, [events]);
 
-  const handleSaveEvent = (savedEv: ScheduleEvent) => {
+  const handleSaveEvent = useCallback((savedEv: ScheduleEvent) => {
     const exists = events.some((e) => e.id === savedEv.id);
     if (exists) {
       updateEvents(events.map((e) => (e.id === savedEv.id ? savedEv : e)));
     } else {
       updateEvents([...events, savedEv]);
     }
-  };
+  }, [events]);
 
-  const handleDeleteEvent = (id: string) => {
+  const handleDeleteEvent = useCallback((id: string) => {
     updateEvents(events.filter((e) => e.id !== id));
-  };
+  }, [events]);
 
-  const handleAddAtSlot = (day: DayOfWeek, startTime: string) => {
+  const handleAddAtSlot = useCallback((day: DayOfWeek, startTime: string) => {
     setSelectedEvent(null);
     setSlotToAdd({ day, startTime });
     setIsEventModalOpen(true);
-  };
+  }, []);
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100 selection:bg-indigo-500 selection:text-white">

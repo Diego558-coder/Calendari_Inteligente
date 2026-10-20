@@ -56,7 +56,7 @@ export const DailyAgendaView: React.FC<DailyAgendaViewProps> = ({
   ].sort((a, b) => a.startMin - b.startMin);
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-hidden flex flex-col">
+    <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-hidden flex flex-col" role="region" aria-labelledby="agenda-title">
       
       {/* Selector horizontal de días */}
       <div className="p-4 border-b border-slate-800 bg-slate-900/90 overflow-x-auto">
@@ -69,6 +69,10 @@ export const DailyAgendaView: React.FC<DailyAgendaViewProps> = ({
               <button
                 key={day.key}
                 onClick={() => setSelectedDay(day.key)}
+                role="tab"
+                aria-selected={isSelected}
+                aria-controls={`day-${day.key}-panel`}
+                id={`tab-${day.key}`}
                 className={`flex flex-col items-center px-4 py-2.5 rounded-xl text-xs transition-all ${
                   isSelected
                     ? 'bg-indigo-600 text-white font-bold shadow-lg shadow-indigo-600/30 ring-2 ring-indigo-400'
@@ -97,7 +101,7 @@ export const DailyAgendaView: React.FC<DailyAgendaViewProps> = ({
       {/* Cabecera del día seleccionado */}
       <div className="p-4 sm:px-6 bg-slate-950/40 border-b border-slate-800 flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-bold text-white capitalize flex items-center gap-2">
+          <h2 id="agenda-title" className="text-lg font-bold text-white capitalize flex items-center gap-2">
             <Calendar className="w-5 h-5 text-indigo-400" />
             {DAYS_OF_WEEK.find((d) => d.key === selectedDay)?.label}
           </h2>
@@ -126,7 +130,7 @@ export const DailyAgendaView: React.FC<DailyAgendaViewProps> = ({
       )}
 
       {/* Lista del Timeline del día */}
-      <div className="p-4 sm:p-6 space-y-3 overflow-y-auto max-h-[65vh]">
+      <div className="p-4 sm:p-6 space-y-3 overflow-y-auto max-h-[65vh]" role="tabpanel" id={`day-${selectedDay}-panel`} aria-labelledby={`tab-${selectedDay}`}>
         {timelineItems.length === 0 ? (
           <div className="py-16 text-center text-slate-500 flex flex-col items-center">
             <Sparkles className="w-10 h-10 text-amber-400/40 mb-3" />
@@ -146,7 +150,10 @@ export const DailyAgendaView: React.FC<DailyAgendaViewProps> = ({
               return (
                 <div
                   key={slot.id}
-                  className="flex items-center gap-3 p-3 rounded-xl border border-dashed border-amber-500/30 bg-amber-500/5 text-amber-200/90"
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Tiempo libre, ${slot.startTime} a ${slot.endTime}, ${(slot.durationMinutes / 60).toFixed(1)} horas disponibles`}
+                  className="flex items-center gap-3 p-3 rounded-xl border border-dashed border-amber-500/30 bg-amber-500/5 text-amber-200/90 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 focus:ring-offset-slate-900"
                 >
                   <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center shrink-0">
                     <Sparkles className="w-4 h-4 text-amber-400" />
@@ -170,7 +177,11 @@ export const DailyAgendaView: React.FC<DailyAgendaViewProps> = ({
               <div
                 key={ev.id}
                 onClick={() => onSelectEvent(ev)}
-                className={`p-4 rounded-xl border cursor-pointer transition-all hover:scale-[1.01] flex items-start justify-between gap-4 ${
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelectEvent(ev); }}}
+                tabIndex={0}
+                role="button"
+                aria-label={`${ev.title}, ${ev.startTime} a ${ev.endTime}, ${isUni ? 'clase' : 'trabajo'}${ev.location ? ` en ${ev.location}` : ''}`}
+                className={`p-4 rounded-xl border cursor-pointer transition-all hover:scale-[1.01] flex items-start justify-between gap-4 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-slate-900 ${
                   isUni
                     ? 'bg-indigo-950/30 border-indigo-500/30 hover:border-indigo-400/60'
                     : 'bg-emerald-950/30 border-emerald-500/30 hover:border-emerald-400/60'

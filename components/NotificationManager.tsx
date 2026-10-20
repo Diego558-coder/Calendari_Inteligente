@@ -12,6 +12,7 @@ import {
   RefreshCw,
   Smartphone,
   Zap,
+  Info,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -95,16 +96,18 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ events
   const httpsFeedUrl = syncId && originUrl ? `https://${originUrl}/api/calendar/feed/${syncId}` : '';
 
   const handleSubscribe = async () => {
-    if (!webcalUrl) {
+    if (!httpsFeedUrl) {
       const newSyncId = await syncWithCloudFeed();
       if (newSyncId && originUrl) {
         confetti({ particleCount: 70, spread: 60 });
-        window.location.href = `webcal://${originUrl}/api/calendar/feed/${newSyncId}`;
+        // Usar https:// en lugar de webcal:// para mejor compatibilidad con iOS Safari
+        window.location.href = `https://${originUrl}/api/calendar/feed/${newSyncId}`;
       }
       return;
     }
     confetti({ particleCount: 70, spread: 60 });
-    window.location.href = webcalUrl;
+    // En iOS, https:// funciona mejor que webcal:// cuando se abre desde una PWA
+    window.location.href = httpsFeedUrl;
   };
 
   const handleCopyLink = async () => {
@@ -131,7 +134,7 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ events
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
-      <div className="p-6 rounded-3xl bg-gradient-to-br from-indigo-950/80 via-slate-900 to-slate-900 border-2 border-indigo-500/40 shadow-2xl relative overflow-hidden">
+      <div className="p-6 rounded-3xl bg-gradient-to-br from-indigo-950/80 via-slate-900 to-slate-900 border-2 border-indigo-500/40 shadow-2xl relative overflow-hidden" role="region" aria-labelledby="notifications-title">
         <div className="absolute top-0 right-0 w-72 h-72 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="space-y-1">
@@ -139,7 +142,7 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ events
               <Zap className="w-3.5 h-3.5 text-amber-400" />
               Sincronización Automática en Vivo (iPhone / Apple Calendar)
             </div>
-            <h2 className="text-xl sm:text-2xl font-black text-white pt-1">Suscripción a Apple Calendar</h2>
+            <h2 id="notifications-title" className="text-xl sm:text-2xl font-black text-white pt-1">Suscripción a Apple Calendar</h2>
             <p className="text-xs sm:text-sm text-slate-300 max-w-xl leading-relaxed">
               <strong>Olvídate de descargar archivos:</strong> Tu iPhone se conecta a este calendario y <span className="text-amber-300 font-semibold">se actualiza solo en segundo plano</span> cada vez que agregues o cambies un horario, con tu alarma de <strong>1 hora antes</strong>.
             </p>
@@ -168,6 +171,26 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ events
           <button onClick={() => syncId && checkSubscriberStatus(syncId)} className="text-[11px] text-indigo-400 flex items-center gap-1 font-medium px-2.5 py-1 rounded-lg bg-indigo-500/10 shrink-0">
             <RefreshCw className="w-3 h-3" /> Comprobar ahora
           </button>
+        </div>
+
+        {/* Instrucciones específicas para iPhone */}
+        <div className="mt-4 p-4 rounded-xl bg-slate-950/60 border border-slate-800/50 text-xs text-slate-300 space-y-2">
+          <p className="font-semibold text-white flex items-center gap-1.5">
+            <Info className="w-3.5 h-3.5 text-indigo-400" />
+            ¿Cómo suscribirse en iPhone / iPad?
+          </p>
+          <ol className="space-y-1 pl-4 list-decimal text-[11px]">
+            <li>Pulsa <strong>"Suscribirme en mi iPhone"</strong> arriba. Se abrirá Safari.</li>
+            <li>En Safari, pulsa <strong>"Suscribir"</strong> en el diálogo que aparece.</li>
+            <li>Confirma en <strong>"Añadir a calendario existente"</strong> o crea uno nuevo.</li>
+            <li>¡Listo! Tus horarios se actualizarán solos cada hora con alarmas.</li>
+          </ol>
+          <div className="flex items-center gap-2 pt-2">
+            <button onClick={handleCopyLink} className="flex items-center gap-1.5 bg-slate-800/80 text-slate-300 px-3 py-1.5 rounded-lg text-[10px] font-semibold border border-slate-700 hover:bg-slate-700 transition-colors">
+              {copiedLink ? <><CheckCircle2 className="w-3 h-3 text-emerald-400" /> ¡Copiado!</> : <><Copy className="w-3 h-3" /> Copiar enlace https://</>}
+            </button>
+            <span className="text-[10px] text-slate-500">Pégalo en Ajustes → Calendario → Cuentas → Añadir calendario suscrito</span>
+          </div>
         </div>
       </div>
 

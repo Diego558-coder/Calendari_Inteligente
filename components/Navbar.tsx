@@ -11,6 +11,7 @@ import {
   BookOpen,
   Briefcase
 } from 'lucide-react';
+import { ThemeToggle } from './ThemeToggle';
 
 export type ActiveTab = 'calendar' | 'agenda' | 'free-time' | 'notifications';
 
@@ -53,9 +54,13 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
 
           {/* Selector de pestañas desktop */}
-          <nav className="hidden md:flex items-center gap-1 bg-slate-950/60 p-1.5 rounded-xl border border-slate-800">
+          <nav className="hidden md:flex items-center gap-1 bg-slate-950/60 p-1.5 rounded-xl border border-slate-800" role="tablist" aria-label="Vistas principales">
             <button
               onClick={() => setActiveTab('calendar')}
+              role="tab"
+              aria-selected={activeTab === 'calendar'}
+              aria-controls="calendar-panel"
+              id="tab-calendar"
               className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-sm font-medium transition-all ${
                 activeTab === 'calendar'
                   ? 'bg-indigo-600 text-white shadow-md'
@@ -68,6 +73,10 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             <button
               onClick={() => setActiveTab('agenda')}
+              role="tab"
+              aria-selected={activeTab === 'agenda'}
+              aria-controls="agenda-panel"
+              id="tab-agenda"
               className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-sm font-medium transition-all ${
                 activeTab === 'agenda'
                   ? 'bg-indigo-600 text-white shadow-md'
@@ -80,6 +89,10 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             <button
               onClick={() => setActiveTab('free-time')}
+              role="tab"
+              aria-selected={activeTab === 'free-time'}
+              aria-controls="freetime-panel"
+              id="tab-freetime"
               className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-sm font-medium transition-all relative ${
                 activeTab === 'free-time'
                   ? 'bg-indigo-600 text-white shadow-md'
@@ -95,6 +108,10 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             <button
               onClick={() => setActiveTab('notifications')}
+              role="tab"
+              aria-selected={activeTab === 'notifications'}
+              aria-controls="notifications-panel"
+              id="tab-notifications"
               className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-sm font-medium transition-all ${
                 activeTab === 'notifications'
                   ? 'bg-indigo-600 text-white shadow-md'
@@ -108,8 +125,10 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* Botones de acción principales */}
           <div className="flex items-center gap-2">
+            <ThemeToggle />
             <button
               onClick={onOpenUpload}
+              aria-label="Escanear horario con IA"
               className="flex items-center gap-2 bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-600 hover:to-violet-700 text-white px-3.5 py-2 rounded-xl text-sm font-semibold shadow-lg shadow-indigo-500/25 transition-all transform active:scale-95"
             >
               <PlusCircle className="w-4 h-4" />
@@ -119,7 +138,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             <button
               onClick={onOpenSettings}
-              title="Ajustes y API Key"
+              aria-label="Ajustes y clave API de Gemini"
               className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors border border-slate-800"
             >
               <SettingsIcon className="w-5 h-5" />
@@ -129,9 +148,13 @@ export const Navbar: React.FC<NavbarProps> = ({
       </div>
 
       {/* Barra de navegación inferior móvil */}
-      <div className="md:hidden border-t border-slate-800/80 bg-slate-900/95 px-2 py-1.5 flex justify-around items-center">
+      <div className="md:hidden border-t border-slate-800/80 bg-slate-900/95 px-2 py-1.5 flex justify-around items-center" role="tablist" aria-label="Vistas principales (móvil)">
         <button
           onClick={() => setActiveTab('calendar')}
+          role="tab"
+          aria-selected={activeTab === 'calendar'}
+          aria-controls="calendar-panel"
+          id="tab-calendar-mobile"
           className={`flex flex-col items-center gap-1 py-1 px-3 rounded-lg text-xs font-medium ${
             activeTab === 'calendar' ? 'text-indigo-400 font-semibold' : 'text-slate-400'
           }`}
@@ -142,6 +165,10 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         <button
           onClick={() => setActiveTab('agenda')}
+          role="tab"
+          aria-selected={activeTab === 'agenda'}
+          aria-controls="agenda-panel"
+          id="tab-agenda-mobile"
           className={`flex flex-col items-center gap-1 py-1 px-3 rounded-lg text-xs font-medium ${
             activeTab === 'agenda' ? 'text-indigo-400 font-semibold' : 'text-slate-400'
           }`}
@@ -152,6 +179,10 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         <button
           onClick={() => setActiveTab('free-time')}
+          role="tab"
+          aria-selected={activeTab === 'free-time'}
+          aria-controls="freetime-panel"
+          id="tab-freetime-mobile"
           className={`flex flex-col items-center gap-1 py-1 px-3 rounded-lg text-xs font-medium ${
             activeTab === 'free-time' ? 'text-amber-400 font-semibold' : 'text-slate-400'
           }`}
@@ -162,6 +193,10 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         <button
           onClick={() => setActiveTab('notifications')}
+          role="tab"
+          aria-selected={activeTab === 'notifications'}
+          aria-controls="notifications-panel"
+          id="tab-notifications-mobile"
           className={`flex flex-col items-center gap-1 py-1 px-3 rounded-lg text-xs font-medium ${
             activeTab === 'notifications' ? 'text-indigo-400 font-semibold' : 'text-slate-400'
           }`}

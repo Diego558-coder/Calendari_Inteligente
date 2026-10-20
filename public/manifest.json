@@ -1,17 +1,41 @@
 {
-  "name": "Calendario Dinámico IA",
-  "short_name": "MiHorario IA",
-  "description": "Organizador inteligente de horarios de universidad y trabajo con detección de horas libres y notificaciones",
+  "name": "MiHorario IA",
+  "short_name": "MiHorario",
+  "description": "Calendario universitario y laboral con IA - Organiza tus horarios escaneando fotos",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0f172a",
   "theme_color": "#6366f1",
+  "orientation": "portrait-primary",
   "icons": [
     {
-      "src": "/icon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
       "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["productivity", "education"],
+  "shortcuts": [
+    {
+      "name": "Escanear horario",
+      "short_name": "Escanear",
+      "description": "Subir foto de horario para extraer eventos con IA",
+      "url": "/?action=scan",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Ver agenda",
+      "short_name": "Agenda",
+      "description": "Ver agenda diaria y línea de tiempo",
+      "url": "/?tab=agenda",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
     }
   ]
 }

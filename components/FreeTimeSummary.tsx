@@ -39,7 +39,7 @@ export const FreeTimeSummary: React.FC<FreeTimeSummaryProps> = ({
   const breakSlots = freeSlots.filter((f) => f.durationMinutes >= 45 && f.durationMinutes < 90);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" role="region" aria-labelledby="freetime-title">
       
       {/* Tarjetas de Métricas Generales */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -186,7 +186,7 @@ export const FreeTimeSummary: React.FC<FreeTimeSummaryProps> = ({
 
       {/* Desglose de Horas Libres Día por Día */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
-        <h3 className="text-base font-bold text-white flex items-center gap-2 mb-4">
+        <h3 id="freetime-title" className="text-base font-bold text-white flex items-center gap-2 mb-4">
           <Calendar className="w-4 h-4 text-indigo-400" />
           Disponibilidad Día por Día
         </h3>

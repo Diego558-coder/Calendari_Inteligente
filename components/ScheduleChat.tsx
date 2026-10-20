@@ -22,8 +22,8 @@ interface ChatAction {
   event?: Partial<ScheduleEvent>;
 }
 
-function makeId() {
-  return `chat-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+export function makeId() {
+  return crypto.randomUUID();
 }
 
 export const ScheduleChat: React.FC<ScheduleChatProps> = ({ events, apiKey, onApplyEvents }) => {
@@ -94,10 +94,10 @@ export const ScheduleChat: React.FC<ScheduleChatProps> = ({ events, apiKey, onAp
         </button>
       )}
       {isOpen && (
-        <aside className="fixed bottom-5 right-5 z-50 w-[min(380px,calc(100vw-2rem))] h-[min(620px,calc(100vh-2rem))] flex flex-col bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden">
+        <aside className="fixed bottom-5 right-5 z-50 w-[min(380px,calc(100vw-2rem))] h-[min(620px,calc(100vh-2rem))] flex flex-col bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden" role="dialog" aria-modal="true" aria-labelledby="chat-title">
           <header className="flex items-center justify-between px-4 py-3 border-b border-slate-700 bg-slate-950">
-            <div className="flex items-center gap-2"><Bot className="w-5 h-5 text-emerald-400" /><div><p className="text-sm font-bold text-white">Asistente de agenda</p><p className="text-[11px] text-slate-400">Crea y corrige tus eventos</p></div></div>
-            <button onClick={() => setIsOpen(false)} className="p-1.5 text-slate-400 hover:text-white" title="Cerrar chat"><X className="w-4 h-4" /></button>
+            <div className="flex items-center gap-2"><Bot className="w-5 h-5 text-emerald-400" /><div><p id="chat-title" className="text-sm font-bold text-white">Asistente de agenda</p><p className="text-[11px] text-slate-400">Crea y corrige tus eventos</p></div></div>
+            <button onClick={() => setIsOpen(false)} className="p-1.5 text-slate-400 hover:text-white" title="Cerrar chat" aria-label="Cerrar chat"><X className="w-4 h-4" /></button>
           </header>
           <div className="flex-1 overflow-y-auto p-3 space-y-3">
             {messages.map((item, index) => (

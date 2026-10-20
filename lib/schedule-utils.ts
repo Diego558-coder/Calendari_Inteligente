@@ -1,4 +1,4 @@
-import { DayOfWeek, EventType, FreeTimeSlot, ScheduleConflict, ScheduleEvent, ScheduleStats } from '@/types/schedule';
+import { getUserTimezone } from './timezone';
 
 export const DAYS_OF_WEEK: { key: DayOfWeek; label: string; short: string }[] = [
   { key: 'lunes', label: 'Lunes', short: 'Lun' },
@@ -281,6 +281,7 @@ export function generateICS(events: ScheduleEvent[], alarmMinutesBefore = 60): s
   const daysUntilNextMonday = (8 - currentDay) % 7 || 7;
   const baseMonday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + daysUntilNextMonday);
 
+  const userTimezone = getUserTimezone();
   let ics = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
@@ -288,7 +289,7 @@ export function generateICS(events: ScheduleEvent[], alarmMinutesBefore = 60): s
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
     'X-WR-CALNAME:Horario Universidad y Trabajo',
-    'X-WR-TIMEZONE:America/Bogota',
+    `X-WR-TIMEZONE:${userTimezone}`,
   ];
 
   events.forEach((ev) => {

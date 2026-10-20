@@ -1,11 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { analyzeScheduleImageWithGemini } from '@/lib/gemini';
 import { EventType } from '@/types/schedule';
+import { rateLimit } from '@/lib/rate-limit';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
+  // Rate limiting: 10 requests per minute per IP
+  const ip = req.headers.get('x-forwarded-for') || 'unknown';
+  const { allowed, remaining, retryAfter } = rateLimit(`analyze:${ip}`, 10, 60_000);
+  if (!allowed) {
+    return NextResponse.json(
+      { success: false, error: 'Demasiadas peticiones. Intenta en un minuto.' },
+      { status: 429, headers: { 'Retry-After': String(Math.ceil((retryAfter || 60000) / 1000)) } }
+    );
+  }
+
   try {
     const body = await req.json();
     const { imageBase64, mimeType, scheduleType, apiKey } = body;

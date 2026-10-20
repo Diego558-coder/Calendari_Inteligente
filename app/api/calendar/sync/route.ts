@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ScheduleEvent } from '@/types/schedule';
+import { rateLimit } from '@/lib/rate-limit';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -7,6 +8,16 @@ export const dynamic = 'force-dynamic';
 const CLOUD_STORAGE_BASE = 'https://api.restful-api.dev/objects';
 
 export async function POST(req: NextRequest) {
+  // Rate limiting: 30 requests per minute per IP
+  const ip = req.headers.get('x-forwarded-for') || 'unknown';
+  const { allowed, remaining, retryAfter } = rateLimit(`sync:${ip}`, 30, 60_000);
+  if (!allowed) {
+    return NextResponse.json(
+      { success: false, error: 'Demasiadas peticiones de sincronización. Intenta en un minuto.' },
+      { status: 429, headers: { 'Retry-After': String(Math.ceil((retryAfter || 60000) / 1000)) } }
+    );
+  }
+
   try {
     const body = await req.json();
     const { syncId, events } = body as { syncId?: string; events: ScheduleEvent[] };

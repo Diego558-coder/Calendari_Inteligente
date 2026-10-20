@@ -188,7 +188,7 @@ export const PhotoUploader: React.FC<PhotoUploaderProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200" role="dialog" aria-modal="true" aria-labelledby="photo-uploader-title">
       <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
         
         {/* Cabecera del modal */}
@@ -198,7 +198,7 @@ export const PhotoUploader: React.FC<PhotoUploaderProps> = ({
               <Sparkles className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-white">Escanear Horario con IA</h2>
+              <h2 id="photo-uploader-title" className="text-base font-bold text-white">Escanear Horario con IA</h2>
               <p className="text-xs text-slate-400">Sube la foto de tu horario y la IA lo organizará por ti</p>
             </div>
           </div>

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateICS } from '@/lib/schedule-utils';
 import { ScheduleEvent } from '@/types/schedule';
+import { getUserTimezone } from '@/lib/timezone';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -49,11 +50,19 @@ export async function GET(
       console.warn(`No se encontró el feed de calendario para ID: ${id}`);
     }
 
+    const userTimezone = getUserTimezone();
     const baseIcs = generateICS(events, 60);
-    const enhancedIcs = baseIcs.replace(
-      'X-WR-TIMEZONE:America/Bogota',
-      'X-WR-TIMEZONE:America/Bogota\r\nX-PUBLISHED-TTL:PT1H\r\nREFRESH-INTERVAL;VALUE=DURATION:PT1H'
-    );
+    // Mejorar compatibilidad con Apple Calendar / iOS
+    const enhancedIcs = baseIcs
+      .replace(
+        `X-WR-TIMEZONE:${userTimezone}`,
+        `X-WR-TIMEZONE:${userTimezone}\r\nX-PUBLISHED-TTL:PT1H\r\nREFRESH-INTERVAL;VALUE=DURATION:PT1H\r\nX-APPLE-CALENDAR-COLOR:#6366f1`
+      )
+      // Asegurar que las alarmas sean VALARM con TRIGGER correcto para iOS
+      .replace(/BEGIN:VALARM[\s\S]*?END:VALARM/g, (match) => {
+        // Asegurar que el trigger sea relativo y correcto
+        return match.replace(/TRIGGER:-PT(\d+)M/, 'TRIGGER;RELATED=START:-PT$1M');
+      });
 
     return new NextResponse(enhancedIcs, {
       status: 200,
@@ -63,6 +72,10 @@ export async function GET(
         'Cache-Control': 'no-cache, no-store, max-age=0, must-revalidate',
         Pragma: 'no-cache',
         Expires: '0',
+        // Headers importantes para Apple Calendar
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET',
+        'Access-Control-Allow-Headers': 'Content-Type',
       },
     });
   } catch (err: any) {

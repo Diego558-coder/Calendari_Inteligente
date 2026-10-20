@@ -231,12 +231,12 @@ Instrucciones estrictas:
 
       const rawItems = parsedJson.items || (Array.isArray(parsedJson) ? parsedJson : []);
 
-      const formattedEvents: ScheduleEvent[] = rawItems.map((item: any, index: number) => {
+      const formattedEvents: ScheduleEvent[] = rawItems.map((item: any) => {
         const cleanStart = formatTime(item.startTime);
         const cleanEnd = formatTime(item.endTime);
 
         return {
-          id: `ai-${Date.now()}-${index}-${Math.random().toString(36).substring(2, 6)}`,
+          id: crypto.randomUUID(),
           title: item.title?.trim() || 'Actividad sin nombre',
           type: scheduleType,
           dayOfWeek: normalizeDay(item.dayOfWeek),

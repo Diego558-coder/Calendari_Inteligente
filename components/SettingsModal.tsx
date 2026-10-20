@@ -11,9 +11,11 @@ import {
   Upload, 
   CheckCircle2, 
   Sparkles,
-  HelpCircle
+  HelpCircle,
+  Globe
 } from 'lucide-react';
 import { ScheduleEvent } from '@/types/schedule';
+import { TIMEZONES } from '@/lib/timezone';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -82,12 +84,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title">
       <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col">
         
         {/* Cabecera */}
         <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/60">
-          <h2 className="text-base font-bold text-white flex items-center gap-2">
+          <h2 id="settings-modal-title" className="text-base font-bold text-white flex items-center gap-2">
             <Key className="w-5 h-5 text-indigo-400" />
             Ajustes y Clave de Gemini IA
           </h2>
@@ -200,6 +202,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 />
               </label>
             </div>
+          </div>
+
+          <hr className="border-slate-800" />
+
+          {/* Zona Horaria */}
+          <div className="space-y-2">
+            <h3 className="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+              <Globe className="w-3.5 h-3.5 text-indigo-400" />
+              Zona Horaria
+            </h3>
+            <p className="text-xs text-slate-400">
+              Define tu zona horaria para que las alarmas y el archivo .ics se generen con la hora correcta.
+            </p>
+            <select
+              defaultValue={typeof window !== 'undefined' ? localStorage.getItem('userTimezone') || 'America/Bogota' : 'America/Bogota'}
+              onChange={(e) => { localStorage.setItem('userTimezone', e.target.value); }}
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            >
+              {TIMEZONES.map((tz) => (
+                <option key={tz.value} value={tz.value}>{tz.label}</option>
+              ))}
+            </select>
           </div>
 
           <hr className="border-slate-800" />

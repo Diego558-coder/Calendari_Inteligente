@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { EventType, ScheduleEvent } from '@/types/schedule';
 import { minutesToTime, normalizeDay, timeToMinutes } from '@/lib/schedule-utils';
+import { rateLimit } from '@/lib/rate-limit';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -91,6 +92,16 @@ function cleanEvent(event: Partial<ScheduleEvent> = {}): Partial<ScheduleEvent> 
 }
 
 export async function POST(req: NextRequest) {
+  // Rate limiting: 20 requests per minute per IP
+  const ip = req.headers.get('x-forwarded-for') || 'unknown';
+  const { allowed, remaining, retryAfter } = rateLimit(`chat:${ip}`, 20, 60_000);
+  if (!allowed) {
+    return NextResponse.json(
+      { success: false, error: 'Demasiadas peticiones al chat. Intenta en un minuto.' },
+      { status: 429, headers: { 'Retry-After': String(Math.ceil((retryAfter || 60000) / 1000)) } }
+    );
+  }
+
   try {
     const body = await req.json();
     const message = typeof body.message === 'string' ? body.message.trim() : '';
