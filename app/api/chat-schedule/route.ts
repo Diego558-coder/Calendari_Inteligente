@@ -7,12 +7,12 @@ import { analyzeScheduleChatWithGroq } from '@/lib/groq';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-type ChatAction = {
+interface ChatAction {
   type: 'add' | 'update' | 'delete' | 'none';
   eventId?: string;
   matchTitle?: string;
   event?: Partial<ScheduleEvent>;
-};
+}
 
 const FALLBACK_MODELS = ['gemini-2.0-flash', 'gemini-1.5-flash-latest', 'gemini-2.5-flash'];
 const MAX_MODELS_TO_TRY = 3;
@@ -146,7 +146,7 @@ Pedido del usuario: ${message}`;
       lastStatus = 504;
     }
   }
-
+  
   if (!data) {
     const error = lastStatus === 401 || lastStatus === 403
       ? 'La clave de Gemini no es válida o no tiene permisos para usar el modelo.'
@@ -215,7 +215,7 @@ export async function POST(req: NextRequest) {
           });
         }
         // Si Groq falla por rate limit o auth, hacer fallback a Gemini
-        if (result.error?.includes('GROQ_4') || result.error?.includes('GROQ_5')) {
+        if (result.error?.startsWith('GROQ_4') || result.error?.startsWith('GROQ_5')) {
           console.warn('Groq falló, haciendo fallback a Gemini:', result.error);
         } else if (!apiKey) {
           // Si no hay key de Gemini tampoco, devolver error de Groq
@@ -223,7 +223,11 @@ export async function POST(req: NextRequest) {
         }
       } catch (groqError: any) {
         console.warn('Error en Groq, fallback a Gemini:', groqError);
-        if (!apiKey) {
+        // Si el error es GROQ_401, GROQ_403, GROQ_429, hacer fallback
+        if (groqError.message?.startsWith('GROQ_4') || groqError.message?.startsWith('GROQ_5')) {
+          console.warn('Groq error propagado, fallback a Gemini:', groqError.message);
+        } else if (!apiKey) {
+          // Si no hay key de Gemini tampoco, devolver error de Groq
           return NextResponse.json({ 
             success: false, 
             error: groqError.message || 'Error en Groq y no hay clave de Gemini configurada' 

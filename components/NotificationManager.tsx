@@ -2,7 +2,6 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { ScheduleEvent } from '@/types/schedule';
-import { generateICS } from '@/lib/schedule-utils';
 import {
   Calendar,
   CheckCircle2,
@@ -15,6 +14,8 @@ import {
   Info,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { generateICSEvents } from '@/lib/ics-generator';
+import { SubscribeModal } from './SubscribeModal';
 
 interface NotificationManagerProps {
   events: ScheduleEvent[];
@@ -29,16 +30,18 @@ interface SubscriberStatus {
 const STORAGE_KEY_SYNC_ID = 'mihorario_sync_id_v1';
 
 export const NotificationManager: React.FC<NotificationManagerProps> = ({ events }) => {
-  const [alarmMinutes, setAlarmMinutes] = useState(60);
-  const [syncId, setSyncId] = useState('');
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [copiedLink, setCopiedLink] = useState(false);
-  const [originUrl, setOriginUrl] = useState('');
-  const [subscriberStatus, setSubscriberStatus] = useState<SubscriberStatus | null>(null);
+  const [alarmMinutes, setAlarmMinutes] = useState<number>(60);
+  const [syncId, setSyncId] = useState<string>('');
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [copiedLink, setCopiedLink] = useState<boolean>(false);
+  const [originUrl, setOriginUrl] = useState<string>('');
+  const [subscriberStatus, setSubscriberStatus] = useState<{ enrolled: boolean; lastPing: number | null; userAgent: string | null } | null>(null);
+  const [showSubscribeModal, setShowSubscribeModal] = useState<boolean>(false);
+  const [subscribeUrl, setSubscribeUrl] = useState<string>('');
 
   useEffect(() => {
     setOriginUrl(window.location.host);
-    const savedId = localStorage.getItem(STORAGE_KEY_SYNC_ID);
+    const savedId = localStorage.getItem('mihorario_sync_id_v1');
     if (savedId) setSyncId(savedId);
   }, []);
 
@@ -52,13 +55,13 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ events
     }
   }, []);
 
-  const syncWithCloudFeed = useCallback(async (forcedEvents?: ScheduleEvent[]): Promise<string | null> => {
+  const syncWithCloudFeed = useCallback(async (forcedEvents?: any[]): Promise<string | null> => {
     const eventsToSync = forcedEvents || events;
     if (eventsToSync.length === 0) return null;
 
     setIsSyncing(true);
     try {
-      const savedId = localStorage.getItem(STORAGE_KEY_SYNC_ID) || undefined;
+      const savedId = localStorage.getItem('mihorario_sync_id_v1') || undefined;
       const response = await fetch('/api/calendar/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -68,7 +71,7 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ events
         const data = await response.json();
         if (data.syncId) {
           setSyncId(data.syncId);
-          localStorage.setItem(STORAGE_KEY_SYNC_ID, data.syncId);
+          localStorage.setItem('mihorario_sync_id_v1', data.syncId);
           checkSubscriberStatus(data.syncId);
           return data.syncId;
         }
@@ -81,6 +84,61 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ events
     return null;
   }, [checkSubscriberStatus, events]);
 
+  const httpsFeedUrl = syncId && originUrl ? `https://${originUrl}/api/calendar/feed/${syncId}` : '';
+
+  const handleDownloadICS = useCallback(() => {
+    if (events.length === 0) {
+      alert('Primero debes agregar o escanear tus horarios.');
+      return;
+    }
+    const icsContent = generateICSEvents(events, alarmMinutes);
+    const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `MiHorario_Alarma_${alarmMinutes}min.ics`;
+    link.click();
+    URL.revokeObjectURL(url);
+    confetti({ particleCount: 50, spread: 60 });
+  }, [events, alarmMinutes]);
+
+  const handleCopyLink = useCallback(async () => {
+    if (!httpsFeedUrl) return;
+    await navigator.clipboard.writeText(httpsFeedUrl);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 3000);
+  }, [httpsFeedUrl]);
+
+  const handleSubscribe = useCallback(async () => {
+    let targetUrl = httpsFeedUrl;
+    
+    if (!targetUrl) {
+      const newSyncId = await syncWithCloudFeed();
+      if (!newSyncId || !originUrl) return;
+      targetUrl = `https://${originUrl}/api/calendar/feed/${newSyncId}`;
+    }
+    
+    confetti({ particleCount: 70, spread: 60 });
+    
+    const isIOS = typeof window !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent);
+    const isIOSPWA = isIOS && window.matchMedia('(display-mode: standalone)').matches;
+    
+    if (isIOSPWA) {
+      setSubscribeUrl(targetUrl);
+      setShowSubscribeModal(true);
+      
+      try {
+        await navigator.clipboard.writeText(targetUrl);
+      } catch {}
+      
+      try {
+        window.open(targetUrl, '_blank', 'noopener,noreferrer');
+      } catch {}
+    } else {
+      window.location.href = targetUrl;
+    }
+  }, [httpsFeedUrl, originUrl, syncWithCloudFeed]);
+
   useEffect(() => {
     if (events.length > 0) syncWithCloudFeed(events);
   }, [events, syncWithCloudFeed]);
@@ -91,66 +149,6 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ events
     const interval = setInterval(() => checkSubscriberStatus(syncId), 15000);
     return () => clearInterval(interval);
   }, [checkSubscriberStatus, syncId]);
-
-  const webcalUrl = syncId && originUrl ? `webcal://${originUrl}/api/calendar/feed/${syncId}` : '';
-  const httpsFeedUrl = syncId && originUrl ? `https://${originUrl}/api/calendar/feed/${syncId}` : '';
-
-  // Detectar si estamos en iOS PWA (standalone mode)
-  const isIOSPWA = typeof window !== 'undefined' && 
-    /iPad|iPhone|iPod/.test(navigator.userAgent) && 
-    window.matchMedia('(display-mode: standalone)').matches;
-
-  // Función para abrir enlace de calendario en Safari (requerido en iOS PWA)
-  const openCalendarInSafari = (url: string) => {
-    if (isIOSPWA) {
-      // En PWA iOS: crear enlace temporal y forzar apertura en nueva pestaña (Safari)
-      const a = document.createElement('a');
-      a.href = url;
-      a.target = '_blank';
-      a.rel = 'noopener noreferrer';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    } else {
-      // Navegador normal: navegación directa
-      window.location.href = url;
-    }
-  };
-
-  const handleSubscribe = async () => {
-    if (!httpsFeedUrl) {
-      const newSyncId = await syncWithCloudFeed();
-      if (newSyncId && originUrl) {
-        confetti({ particleCount: 70, spread: 60 });
-        openCalendarInSafari(`https://${originUrl}/api/calendar/feed/${newSyncId}`);
-      }
-      return;
-    }
-    confetti({ particleCount: 70, spread: 60 });
-    openCalendarInSafari(httpsFeedUrl);
-  };
-
-  const handleCopyLink = async () => {
-    if (!httpsFeedUrl) return;
-    await navigator.clipboard.writeText(httpsFeedUrl);
-    setCopiedLink(true);
-    setTimeout(() => setCopiedLink(false), 3000);
-  };
-
-  const downloadICSFile = () => {
-    if (events.length === 0) {
-      alert('Primero debes agregar o escanear tus horarios.');
-      return;
-    }
-    const blob = new Blob([generateICS(events, alarmMinutes)], { type: 'text/calendar;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `MiHorario_Alarma_${alarmMinutes}min.ics`;
-    link.click();
-    URL.revokeObjectURL(url);
-    confetti({ particleCount: 50, spread: 60 });
-  };
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
@@ -169,34 +167,36 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ events
           </div>
           <div className="flex flex-col gap-2 shrink-0">
             <button onClick={handleSubscribe} disabled={isSyncing || events.length === 0} className="flex items-center justify-center gap-2.5 bg-gradient-to-r from-indigo-500 via-indigo-600 to-violet-600 text-white px-6 py-3.5 rounded-2xl text-sm font-bold shadow-xl shadow-indigo-600/30 transition-all disabled:opacity-50">
-              {isSyncing ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Calendar className="w-5 h-5 text-indigo-200" />}
               {isSyncing ? 'Preparando...' : 'Suscribirme en mi iPhone'}
             </button>
-            {syncId && <button type="button" onClick={handleCopyLink} className="flex items-center justify-center gap-1.5 bg-slate-800/80 text-slate-300 px-4 py-2 rounded-xl text-xs font-semibold border border-slate-700">
-              {copiedLink ? <><CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> ¡Enlace Copiado!</> : <><Copy className="w-3.5 h-3.5" /> Copiar Enlace de Suscripción</>}
+            {syncId && <button type="button" onClick={async () => {
+              if (!httpsFeedUrl) return;
+              await navigator.clipboard.writeText(httpsFeedUrl);
+              setCopiedLink(true);
+              setTimeout(() => setCopiedLink(false), 3000);
+            }} className="flex items-center justify-center gap-1.5 bg-slate-800/80 text-slate-300 px-4 py-2 rounded-xl text-xs font-semibold border border-slate-700">
+              {copiedLink ? '¡Enlace Copiado!' : 'Copiar Enlace de Suscripción'}
             </button>}
           </div>
         </div>
 
         <div className="mt-5 p-4 rounded-2xl bg-slate-950/80 border border-slate-800/90 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${subscriberStatus?.enrolled ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' : 'bg-amber-500/20 text-amber-400 border border-amber-500/40'}`}>
-              {subscriberStatus?.enrolled ? <CheckCircle2 className="w-5 h-5" /> : <Smartphone className="w-5 h-5 animate-pulse" />}
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${false ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' : 'bg-amber-500/20 text-amber-400 border border-amber-500/40'}`}>
+              {false ? '✓' : '📱'}
             </div>
             <div>
-              <p className="text-xs font-bold text-white">Estado del Dispositivo: <span className="text-slate-300">{subscriberStatus?.enrolled ? 'DISPOSITIVO CONECTADO' : 'PENDIENTE DE CONEXIÓN'}</span></p>
-              <p className="text-[11px] text-slate-400 mt-0.5">{subscriberStatus?.enrolled ? 'Tu iPhone ya está sincronizado.' : 'Aún no se ha detectado ningún iPhone suscrito.'}</p>
+              <p className="text-xs font-bold text-white">Estado del Dispositivo: <span className="text-slate-300">PENDIENTE DE CONEXIÓN</span></p>
+              <p className="text-[11px] text-slate-400 mt-0.5">Aún no se ha detectado ningún iPhone suscrito.</p>
             </div>
           </div>
-          <button onClick={() => syncId && checkSubscriberStatus(syncId)} className="text-[11px] text-indigo-400 flex items-center gap-1 font-medium px-2.5 py-1 rounded-lg bg-indigo-500/10 shrink-0">
-            <RefreshCw className="w-3 h-3" /> Comprobar ahora
+          <button onClick={() => { if (syncId) checkSubscriberStatus(syncId); }} className="text-[11px] text-indigo-400 flex items-center gap-1 font-medium px-2.5 py-1 rounded-lg bg-indigo-500/10 shrink-0">
+            Comprobar ahora
           </button>
         </div>
 
-        {/* Instrucciones específicas para iPhone */}
         <div className="mt-4 p-4 rounded-xl bg-slate-950/60 border border-slate-800/50 text-xs text-slate-300 space-y-2">
           <p className="font-semibold text-white flex items-center gap-1.5">
-            <Info className="w-3.5 h-3.5 text-indigo-400" />
             ¿Cómo suscribirse en iPhone / iPad?
           </p>
           <ol className="space-y-1 pl-4 list-decimal text-[11px]">
@@ -206,8 +206,13 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ events
             <li>¡Listo! Tus horarios se actualizarán solos cada hora con alarmas.</li>
           </ol>
           <div className="flex items-center gap-2 pt-2">
-            <button onClick={handleCopyLink} className="flex items-center gap-1.5 bg-slate-800/80 text-slate-300 px-3 py-1.5 rounded-lg text-[10px] font-semibold border border-slate-700 hover:bg-slate-700 transition-colors">
-              {copiedLink ? <><CheckCircle2 className="w-3 h-3 text-emerald-400" /> ¡Copiado!</> : <><Copy className="w-3 h-3" /> Copiar enlace https://</>}
+            <button onClick={async () => {
+              if (!httpsFeedUrl) return;
+              await navigator.clipboard.writeText(httpsFeedUrl);
+              setCopiedLink(true);
+              setTimeout(() => setCopiedLink(false), 3000);
+            }} className="flex items-center gap-1.5 bg-slate-800/80 text-slate-300 px-3 py-1.5 rounded-lg text-[10px] font-semibold border border-slate-700 hover:bg-slate-700 transition-colors">
+              {false ? '¡Copiado!' : 'Copiar enlace https://'}
             </button>
             <span className="text-[10px] text-slate-500">Pégalo en Ajustes → Calendario → Cuentas → Añadir calendario suscrito</span>
           </div>
@@ -217,7 +222,7 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ events
       <div className="p-6 rounded-2xl bg-slate-900 border border-slate-800 shadow-xl space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h3 className="text-base font-bold text-white flex items-center gap-2"><Download className="w-4 h-4 text-indigo-400" /> Descarga Manual Tradicional (.ics)</h3>
+            <h3 className="text-base font-bold text-white flex items-center gap-2">Descarga Manual Tradicional (.ics)</h3>
             <p className="text-xs text-slate-400 mt-0.5">Si prefieres guardar una copia fija de tus horarios sin suscripción automática</p>
             <div className="mt-3 flex items-center gap-2">
               <Clock className="w-4 h-4 text-amber-400" />
@@ -230,11 +235,32 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ events
               </select>
             </div>
           </div>
-          <button onClick={downloadICSFile} className="flex items-center justify-center gap-2 bg-slate-800 text-slate-200 px-4 py-2.5 rounded-xl text-xs font-semibold border border-slate-700 shrink-0">
-            <Download className="w-3.5 h-3.5" /> Descargar archivo .ics
+          <button onClick={() => {
+            if (events.length === 0) {
+              alert('Primero debes agregar o escanear tus horarios.');
+              return;
+            }
+            const icsContent = generateICSEvents(events, alarmMinutes);
+            const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `MiHorario_Alarma_${alarmMinutes}min.ics`;
+            link.click();
+            URL.revokeObjectURL(url);
+            confetti({ particleCount: 50, spread: 60 });
+          }} className="flex items-center justify-center gap-2 bg-slate-800 text-slate-200 px-4 py-2.5 rounded-xl text-xs font-semibold border border-slate-700 shrink-0">
+            Descargar archivo .ics
           </button>
         </div>
       </div>
+
+      <SubscribeModal 
+        isOpen={false} 
+        onClose={() => {}} 
+        subscribeUrl={subscribeUrl} 
+        onCopyLink={() => {}} 
+      />
     </div>
   );
 };
