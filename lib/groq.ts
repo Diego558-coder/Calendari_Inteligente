@@ -14,7 +14,7 @@ export interface GroqChatResult {
 }
 
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const GROQ_MODEL = 'llama-3.1-70b-versatile'; // Modelo gratuito rápido y potente
+const GROQ_MODEL = 'llama-3.3-70b-versatile'; // Modelo actualizado (llama-3.1-70b fue descontinuado)
 
 const actionSchema = {
   type: 'object',
