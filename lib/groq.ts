@@ -14,7 +14,15 @@ export interface GroqChatResult {
 }
 
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const GROQ_MODEL = 'llama-3.3-70b-versatile'; // Modelo actualizado (llama-3.1-70b fue descontinuado)
+
+// Modelos en orden de preferencia (estables y disponibles)
+const GROQ_MODELS = [
+  'llama-3.1-8b-instant',      // Rápido, siempre disponible, 8B params
+  'llama3-8b-8192',            // Alias estable
+  'llama-3.1-70b-versatile',   // Si vuelve a estar disponible
+  'mixtral-8x7b-32768',        // Alternativa Mixture of Experts
+  'gemma2-9b-it',              // Google Gemma, buena alternativa
+];
 
 const actionSchema = {
   type: 'object',
@@ -74,8 +82,8 @@ function cleanEvent(event: Partial<ScheduleEvent> = {}): Partial<ScheduleEvent> 
 }
 
 /**
- * Llama a Groq (Llama 3.1 70B) para procesar el chat de agenda
- * Gratis: 14,400 req/día, muy rápido (LPUs)
+ * Llama a Groq con fallback automático entre modelos disponibles
+ * Prueba modelos en orden hasta que uno funcione
  */
 export async function analyzeScheduleChatWithGroq(
   message: string,
@@ -103,76 +111,88 @@ Eventos actuales:
 ${JSON.stringify(events)}
 Pedido del usuario: ${message}`;
 
-  try {
-    const response = await fetch(GROQ_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${cleanKey}`,
-      },
-      body: JSON.stringify({
-        model: GROQ_MODEL,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: message },
-        ],
-        temperature: 0.1,
-        response_format: { type: 'json_object' },
-        max_tokens: 2048,
-      }),
-    });
+  // Probar modelos en orden hasta que uno funcione
+  for (const model of GROQ_MODELS) {
+    try {
+      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey.trim()}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: message },
+          ],
+          temperature: 0.1,
+          response_format: { type: 'json_object' },
+          max_tokens: 2048,
+        }),
+      });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Groq API error:', response.status, errorText);
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.warn(`Groq model ${model} failed (${response.status}):`, errorText);
+        
+        // Si es 404 (modelo no existe) o 400 (modelo descontinuado), probar siguiente
+        if (response.status === 404 || response.status === 400) {
+          console.log(`Model ${model} not available, trying next...`);
+          continue;
+        }
+        
+        // Si es error de auth/rate limit, propagar
+        if (response.status === 401 || response.status === 403 || response.status === 429) {
+          throw new Error(`GROQ_${response.status}`);
+        }
+        
+        // Otros errores, probar siguiente modelo
+        continue;
+      }
+
+      const data = await response.json();
+      const content = data.choices?.[0]?.message?.content;
+
+      if (!content) {
+        console.warn(`Model ${model} returned empty content`);
+        continue;
+      }
+
+      const parsed = parseJson(content);
+
+      console.log(`✅ Groq success with model: ${model}`);
+
+      return {
+        success: true,
+        reply: parsed.reply || 'Listo.',
+        actions: (parsed.actions || []).map((action: any) => {
+          if (!action.event) return action;
+          const event = cleanEvent(action.event);
+          if (action.type === 'add' && event.startTime && !event.endTime) {
+            event.endTime = minutesToTime(timeToMinutes(event.startTime) + 60);
+          }
+          return { ...action, event };
+        }),
+      };
+    } catch (error: any) {
+      console.warn(`Model ${model} threw error:`, error.message);
       
-      // Si es error de rate limit o auth, propagar para fallback a Gemini
-      if (response.status === 401 || response.status === 403 || response.status === 429) {
-        throw new Error(`GROQ_${response.status}`);
+      // Propagar errores de auth/rate limit
+      if (error.message?.startsWith('GROQ_')) {
+        throw error;
       }
       
-      return {
-        success: false,
-        reply: '',
-        actions: [],
-        error: `Error de Groq (${response.status}): ${errorText}`,
-      };
+      // Otros errores, probar siguiente modelo
+      continue;
     }
-
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content;
-
-    if (!content) {
-      throw new Error('Groq no devolvió contenido');
-    }
-
-    const parsed = parseJson(content);
-
-    return {
-      success: true,
-      reply: parsed.reply || 'Listo.',
-      actions: (parsed.actions || []).map((action: any) => {
-        if (!action.event) return action;
-        const event = cleanEvent(action.event);
-        if (action.type === 'add' && event.startTime && !event.endTime) {
-          event.endTime = minutesToTime(timeToMinutes(event.startTime) + 60);
-        }
-        return { ...action, event };
-      }),
-    };
-  } catch (error: any) {
-    console.error('Error en Groq chat:', error);
-    
-    // Propagar errores específicos para que el caller haga fallback
-    if (error.message?.startsWith('GROQ_')) {
-      throw error;
-    }
-    
-    return {
-      success: false,
-      reply: '',
-      actions: [],
-      error: error.message || 'No se pudo procesar el mensaje con Groq',
-    };
   }
+
+  // Si ningún modelo funcionó
+  return {
+    success: false,
+    reply: '',
+    actions: [],
+    error: 'Ningún modelo de Groq disponible funcionó. Verifica tu API key en console.groq.com',
+  };
 }
