@@ -1,3 +1,4 @@
+import { DayOfWeek, EventType, FreeTimeSlot, ScheduleConflict, ScheduleEvent, ScheduleStats } from '@/types/schedule';
 import { getUserTimezone } from './timezone';
 
 export const DAYS_OF_WEEK: { key: DayOfWeek; label: string; short: string }[] = [

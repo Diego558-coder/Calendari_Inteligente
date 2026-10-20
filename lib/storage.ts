@@ -1,89 +1,71 @@
 import localforage from 'localforage';
 import type { ScheduleEvent } from '@/types/schedule';
 
-localforage.config({
-  name: 'MiHorario',
-  storeName: 'events',
-  driver: [localforage.INDEXEDDB, localforage.WEBSQL, localforage.LOCALSTORAGE],
-});
+// Configurar localforage solo en el cliente
+if (typeof window !== 'undefined') {
+  localforage.config({
+    name: 'MiHorario',
+    storeName: 'events',
+    driver: [localforage.INDEXEDDB, localforage.WEBSQL, localforage.LOCALSTORAGE],
+  });
+}
 
 const STORAGE_KEY_EVENTS = 'mihorario_events_v1';
 const STORAGE_KEY_APIKEY = 'mihorario_gemini_key_v1';
 const STORAGE_KEY_THEME = 'mihorario_theme_v1';
 const STORAGE_KEY_TIMEZONE = 'mihorario_timezone_v1';
 
+// Helper para verificar si estamos en el cliente
+const isClient = typeof window !== 'undefined';
+
+async function safeGetItem<T>(key: string, fallback: T): Promise<T> {
+  if (!isClient) return fallback;
+  try {
+    const value = await localforage.getItem<T>(key);
+    return value ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+async function safeSetItem(key: string, value: unknown): Promise<void> {
+  if (!isClient) return;
+  try {
+    await localforage.setItem(key, value);
+  } catch {
+    // Silenciosamente fallar en SSR
+  }
+}
+
 export const storage = {
   // Eventos
-  getEvents: async (): Promise<ScheduleEvent[]> => {
-    try {
-      const events = await localforage.getItem<ScheduleEvent[]>(STORAGE_KEY_EVENTS);
-      return events || [];
-    } catch {
-      return [];
-    }
-  },
+  getEvents: (): Promise<ScheduleEvent[]> => safeGetItem<ScheduleEvent[]>(STORAGE_KEY_EVENTS, []),
 
-  setEvents: async (events: ScheduleEvent[]): Promise<void> => {
-    await localforage.setItem(STORAGE_KEY_EVENTS, events);
-  },
+  setEvents: (events: ScheduleEvent[]): Promise<void> => safeSetItem(STORAGE_KEY_EVENTS, events),
 
   // API Key de Gemini
-  getApiKey: async (): Promise<string> => {
-    try {
-      const key = await localforage.getItem<string>(STORAGE_KEY_APIKEY);
-      return key || '';
-    } catch {
-      return '';
-    }
-  },
+  getApiKey: (): Promise<string> => safeGetItem<string>(STORAGE_KEY_APIKEY, ''),
 
-  setApiKey: async (key: string): Promise<void> => {
-    await localforage.setItem(STORAGE_KEY_APIKEY, key);
-  },
+  setApiKey: (key: string): Promise<void> => safeSetItem(STORAGE_KEY_APIKEY, key),
 
   // Tema
-  getTheme: async (): Promise<'light' | 'dark' | 'system'> => {
-    try {
-      const theme = await localforage.getItem<'light' | 'dark' | 'system'>(STORAGE_KEY_THEME);
-      return theme || 'system';
-    } catch {
-      return 'system';
-    }
-  },
+  getTheme: (): Promise<'light' | 'dark' | 'system'> => safeGetItem<'light' | 'dark' | 'system'>(STORAGE_KEY_THEME, 'system'),
 
-  setTheme: async (theme: 'light' | 'dark' | 'system'): Promise<void> => {
-    await localforage.setItem(STORAGE_KEY_THEME, theme);
-  },
+  setTheme: (theme: 'light' | 'dark' | 'system'): Promise<void> => safeSetItem(STORAGE_KEY_THEME, theme),
 
   // Zona horaria
-  getTimezone: async (): Promise<string> => {
-    try {
-      const tz = await localforage.getItem<string>(STORAGE_KEY_TIMEZONE);
-      return tz || Intl.DateTimeFormat().resolvedOptions().timeZone;
-    } catch {
-      return Intl.DateTimeFormat().resolvedOptions().timeZone;
-    }
-  },
+  getTimezone: (): Promise<string> => safeGetItem<string>(STORAGE_KEY_TIMEZONE, Intl.DateTimeFormat().resolvedOptions().timeZone),
 
-  setTimezone: async (timezone: string): Promise<void> => {
-    await localforage.setItem(STORAGE_KEY_TIMEZONE, timezone);
-  },
+  setTimezone: (timezone: string): Promise<void> => safeSetItem(STORAGE_KEY_TIMEZONE, timezone),
 
   // Limpiar todo
-  clearAll: async (): Promise<void> => {
-    await localforage.clear();
+  clearAll: (): Promise<void> => {
+    if (!isClient) return Promise.resolve();
+    return localforage.clear().catch(() => {});
   },
 
   // Genéricos para otros datos
-  getItem: async <T>(key: string): Promise<T | null> => {
-    try {
-      return await localforage.getItem<T>(key);
-    } catch {
-      return null;
-    }
-  },
+  getItem: <T>(key: string): Promise<T | null> => safeGetItem<T | null>(key, null),
 
-  setItem: async (key: string, value: unknown): Promise<void> => {
-    await localforage.setItem(key, value);
-  },
+  setItem: (key: string, value: unknown): Promise<void> => safeSetItem(key, value),
 };

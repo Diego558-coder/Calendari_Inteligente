@@ -18,7 +18,7 @@ interface WeeklyCalendarProps {
   conflicts: ScheduleConflict[];
   freeSlots: FreeTimeSlot[];
   onSelectEvent: (event: ScheduleEvent) => void;
-  onAddEventAtSlot?: (day: DayOfWeek, startTime: string) => void;
+  onAddEventAtSlot: (day: DayOfWeek, startTime: string) => void;
 }
 
 export const WeeklyCalendar: React.FC<WeeklyCalendarProps> = ({

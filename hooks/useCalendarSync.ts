@@ -21,7 +21,7 @@ export function useCalendarSync(events: ScheduleEvent[]) {
   useEffect(() => {
     setOriginUrl(window.location.host);
     const loadSyncId = async () => {
-      const savedId = await storage.getItem(STORAGE_KEY_SYNC_ID);
+      const savedId = await storage.getItem<string>(STORAGE_KEY_SYNC_ID);
       if (savedId) setSyncId(savedId);
     };
     loadSyncId();
@@ -43,7 +43,7 @@ export function useCalendarSync(events: ScheduleEvent[]) {
 
     setIsSyncing(true);
     try {
-      const savedId = await storage.getItem(STORAGE_KEY_SYNC_ID);
+      const savedId = await storage.getItem<string>(STORAGE_KEY_SYNC_ID);
       const response = await fetch('/api/calendar/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
