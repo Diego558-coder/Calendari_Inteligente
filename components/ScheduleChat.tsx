@@ -7,6 +7,7 @@ import { ScheduleEvent } from '@/types/schedule';
 interface ScheduleChatProps {
   events: ScheduleEvent[];
   apiKey: string;
+  groqKey?: string;
   onApplyEvents: (events: ScheduleEvent[]) => void;
 }
 
@@ -26,7 +27,7 @@ export function makeId() {
   return crypto.randomUUID();
 }
 
-export const ScheduleChat: React.FC<ScheduleChatProps> = ({ events, apiKey, onApplyEvents }) => {
+export const ScheduleChat: React.FC<ScheduleChatProps> = ({ events, apiKey, groqKey, onApplyEvents }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [message, setMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -73,7 +74,7 @@ export const ScheduleChat: React.FC<ScheduleChatProps> = ({ events, apiKey, onAp
       const response = await fetch('/api/chat-schedule', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, events, apiKey }),
+        body: JSON.stringify({ message: text, events, apiKey, groqKey }),
       });
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error || 'No se pudo procesar el pedido.');

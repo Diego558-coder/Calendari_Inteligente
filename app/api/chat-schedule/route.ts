@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { EventType, ScheduleEvent } from '@/types/schedule';
 import { minutesToTime, normalizeDay, timeToMinutes } from '@/lib/schedule-utils';
 import { rateLimit } from '@/lib/rate-limit';
+import { analyzeScheduleChatWithGroq } from '@/lib/groq';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -11,40 +12,6 @@ type ChatAction = {
   eventId?: string;
   matchTitle?: string;
   event?: Partial<ScheduleEvent>;
-};
-
-const actionSchema = {
-  type: 'OBJECT',
-  properties: {
-    reply: { type: 'STRING' },
-    actions: {
-      type: 'ARRAY',
-      items: {
-        type: 'OBJECT',
-        properties: {
-          type: { type: 'STRING', enum: ['add', 'update', 'delete', 'none'] },
-          eventId: { type: 'STRING' },
-          matchTitle: { type: 'STRING' },
-          event: {
-            type: 'OBJECT',
-            properties: {
-              title: { type: 'STRING' },
-              type: { type: 'STRING', enum: ['university', 'work', 'personal'] },
-              dayOfWeek: { type: 'STRING' },
-              startTime: { type: 'STRING' },
-              endTime: { type: 'STRING' },
-              location: { type: 'STRING' },
-              teacher: { type: 'STRING' },
-              notes: { type: 'STRING' },
-            },
-            required: ['title', 'type', 'dayOfWeek', 'startTime'],
-          },
-        },
-        required: ['type'],
-      },
-    },
-  },
-  required: ['reply', 'actions'],
 };
 
 const FALLBACK_MODELS = ['gemini-2.0-flash', 'gemini-1.5-flash-latest', 'gemini-2.5-flash'];
@@ -91,6 +58,121 @@ function cleanEvent(event: Partial<ScheduleEvent> = {}): Partial<ScheduleEvent> 
   };
 }
 
+/**
+ * Llama a Gemini (fallback cuando Groq falla)
+ */
+async function analyzeWithGemini(
+  message: string,
+  events: ScheduleEvent[],
+  apiKey: string
+): Promise<{ success: boolean; reply: string; actions: ChatAction[]; error?: string }> {
+  const prompt = `Eres el asistente de agenda de MiHorario. Responde en español y devuelve SOLO JSON válido.
+El usuario quiere crear, corregir, modificar o eliminar actividades. Interpreta días en español y horas como 2 pm = 14:00.
+Si falta la hora de fin, usa una duración de 1 hora para una clase personal y responde indicando esa suposición.
+Para actualizar o borrar, usa eventId si coincide con el listado; si no, usa matchTitle con el título más probable. Si hay ambigüedad real, no ejecutes acciones y pide aclaración usando type none.
+Tipos: university para clase/universidad, work para trabajo/turno, personal para cita o actividad personal.
+Cada evento debe usar dayOfWeek entre lunes, martes, miercoles, jueves, viernes, sabado, domingo; horas HH:mm.
+Eventos actuales:
+${JSON.stringify(events)}
+Pedido del usuario: ${message}`;
+
+  const actionSchema = {
+    type: 'OBJECT',
+    properties: {
+      reply: { type: 'STRING' },
+      actions: {
+        type: 'ARRAY',
+        items: {
+          type: 'OBJECT',
+          properties: {
+            type: { type: 'STRING', enum: ['add', 'update', 'delete', 'none'] },
+            eventId: { type: 'STRING' },
+            matchTitle: { type: 'STRING' },
+            event: {
+              type: 'OBJECT',
+              properties: {
+                title: { type: 'STRING' },
+                type: { type: 'STRING', enum: ['university', 'work', 'personal'] },
+                dayOfWeek: { type: 'STRING' },
+                startTime: { type: 'STRING' },
+                endTime: { type: 'STRING' },
+                location: { type: 'STRING' },
+                teacher: { type: 'STRING' },
+                notes: { type: 'STRING' },
+              },
+              required: ['title', 'type', 'dayOfWeek', 'startTime'],
+            },
+          },
+          required: ['type'],
+        },
+      },
+    },
+    required: ['reply', 'actions'],
+  };
+
+  let data: any = null;
+  let lastStatus = 502;
+  const modelsToTry = (await getChatModels(apiKey)).slice(0, MAX_MODELS_TO_TRY);
+  
+  for (const model of modelsToTry) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    const requestBody: any = {
+      systemInstruction: { parts: [{ text: prompt }] },
+      contents: [{ parts: [{ text: message }] }],
+      generationConfig: { temperature: 0.1, responseMimeType: 'application/json', responseSchema: actionSchema },
+    };
+    try {
+      let response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+        body: JSON.stringify(requestBody),
+        signal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
+      });
+      if (!response.ok && response.status === 400) {
+        delete requestBody.generationConfig.responseSchema;
+        response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+          body: JSON.stringify(requestBody),
+          signal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
+        });
+      }
+      lastStatus = response.status;
+      if (response.ok) {
+        data = await response.json();
+        break;
+      }
+    } catch {
+      lastStatus = 504;
+    }
+  }
+
+  if (!data) {
+    const error = lastStatus === 401 || lastStatus === 403
+      ? 'La clave de Gemini no es válida o no tiene permisos para usar el modelo.'
+      : `Gemini no pudo procesar el pedido (${lastStatus}). Revisa la cuota y los modelos habilitados.`;
+    return { success: false, reply: '', actions: [], error };
+  }
+
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error('Gemini no devolvió una respuesta.');
+  
+  const parsed = parseJson(text);
+
+  return {
+    success: true,
+    reply: parsed.reply || 'Listo.',
+    actions: (parsed.actions || []).map((action) => {
+      if (!action.event) return action;
+      const event = cleanEvent(action.event);
+      if (action.type === 'add' && event.startTime && !event.endTime) {
+        event.endTime = minutesToTime(timeToMinutes(event.startTime) + 60);
+      }
+      return { ...action, event };
+    }),
+  };
+}
+
 export async function POST(req: NextRequest) {
   // Rate limiting: 20 requests per minute per IP
   const ip = req.headers.get('x-forwarded-for') || 'unknown';
@@ -107,79 +189,63 @@ export async function POST(req: NextRequest) {
     const message = typeof body.message === 'string' ? body.message.trim() : '';
     const events = Array.isArray(body.events) ? body.events as ScheduleEvent[] : [];
     const apiKey = typeof body.apiKey === 'string' && body.apiKey.trim() ? body.apiKey.trim() : process.env.GEMINI_API_KEY;
+    const groqKey = typeof body.groqKey === 'string' && body.groqKey.trim() ? body.groqKey.trim() : process.env.GROQ_API_KEY;
 
     if (!message) return NextResponse.json({ success: false, error: 'Escribe una instrucción.' }, { status: 400 });
-    if (!apiKey) return NextResponse.json({ success: false, error: 'Configura la clave de Gemini en Ajustes para usar el chat.' }, { status: 422 });
+    
+    // Si no hay ninguna key, pedir al usuario
+    if (!apiKey && !groqKey) {
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Configura una clave de API en Ajustes (Groq recomendado para chat, Gemini para visión).' 
+      }, { status: 422 });
+    }
 
-    const prompt = `Eres el asistente de agenda de MiHorario. Responde en español y devuelve SOLO JSON válido.
-El usuario quiere crear, corregir, modificar o eliminar actividades. Interpreta días en español y horas como 2 pm = 14:00.
-Si falta la hora de fin, usa una duración de 1 hora para una clase personal y responde indicando esa suposición.
-Para actualizar o borrar, usa eventId si coincide con el listado; si no, usa matchTitle con el título más probable. Si hay ambigüedad real, no ejecutes acciones y pide aclaración usando type none.
-Tipos: university para clase/universidad, work para trabajo/turno, personal para cita o actividad personal.
-Cada evento debe usar dayOfWeek entre lunes, martes, miercoles, jueves, viernes, sabado, domingo; horas HH:mm.
-Eventos actuales:
-${JSON.stringify(events)}
-Pedido del usuario: ${message}`;
-
-    let data: any = null;
-    let lastStatus = 502;
-    const modelsToTry = (await getChatModels(apiKey)).slice(0, MAX_MODELS_TO_TRY);
-    for (const model of modelsToTry) {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-      const requestBody: any = {
-        systemInstruction: { parts: [{ text: prompt }] },
-        contents: [{ parts: [{ text: message }] }],
-        generationConfig: { temperature: 0.1, responseMimeType: 'application/json', responseSchema: actionSchema },
-      };
+    // 1. INTENTAR CON GROQ (Llama 3.1 70B) - Rápido, gratis, 14k req/día
+    if (groqKey) {
       try {
-        let response = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-          body: JSON.stringify(requestBody),
-          signal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
-        });
-        if (!response.ok && response.status === 400) {
-          delete requestBody.generationConfig.responseSchema;
-          response = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-            body: JSON.stringify(requestBody),
-            signal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
+        const { analyzeScheduleChatWithGroq } = await import('@/lib/groq');
+        const result = await analyzeScheduleChatWithGroq(message, events, groqKey);
+        if (result.success) {
+          return NextResponse.json({
+            success: true,
+            reply: result.reply,
+            actions: result.actions,
+            provider: 'groq',
           });
         }
-        lastStatus = response.status;
-        if (response.ok) {
-          data = await response.json();
-          break;
+        // Si Groq falla por rate limit o auth, hacer fallback a Gemini
+        if (result.error?.includes('GROQ_4') || result.error?.includes('GROQ_5')) {
+          console.warn('Groq falló, haciendo fallback a Gemini:', result.error);
+        } else if (!apiKey) {
+          // Si no hay key de Gemini tampoco, devolver error de Groq
+          return NextResponse.json({ success: false, error: result.error }, { status: 502 });
         }
-      } catch {
-        lastStatus = 504;
+      } catch (groqError: any) {
+        console.warn('Error en Groq, fallback a Gemini:', groqError);
+        if (!apiKey) {
+          return NextResponse.json({ 
+            success: false, 
+            error: groqError.message || 'Error en Groq y no hay clave de Gemini configurada' 
+          }, { status: 502 });
+        }
       }
     }
 
-    if (!data) {
-      const error = lastStatus === 401 || lastStatus === 403
-        ? 'La clave de Gemini no es válida o no tiene permisos para usar el modelo.'
-        : `Gemini no pudo procesar el pedido (${lastStatus}). Revisa la cuota y los modelos habilitados.`;
-      return NextResponse.json({ success: false, error }, { status: 502 });
+    // 2. FALLBACK A GEMINI (si hay key)
+    if (!apiKey) {
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Groq falló y no hay clave de Gemini configurada para fallback.' 
+      }, { status: 422 });
     }
 
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) throw new Error('Gemini no devolvió una respuesta.');
-    const parsed = parseJson(text);
-
+    const geminiResult = await analyzeWithGemini(message, events, apiKey);
     return NextResponse.json({
-      success: true,
-      reply: parsed.reply || 'Listo.',
-      actions: (parsed.actions || []).map((action) => {
-        if (!action.event) return action;
-        const event = cleanEvent(action.event);
-        if (action.type === 'add' && event.startTime && !event.endTime) {
-          event.endTime = minutesToTime(timeToMinutes(event.startTime) + 60);
-        }
-        return { ...action, event };
-      }),
+      ...geminiResult,
+      provider: 'gemini',
     });
+
   } catch (error: any) {
     console.error('Error en /api/chat-schedule:', error);
     return NextResponse.json({ success: false, error: error.message || 'No se pudo procesar el mensaje.' }, { status: 500 });

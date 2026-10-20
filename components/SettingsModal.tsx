@@ -12,7 +12,8 @@ import {
   CheckCircle2, 
   Sparkles,
   HelpCircle,
-  Globe
+  Globe,
+  Zap
 } from 'lucide-react';
 import { ScheduleEvent } from '@/types/schedule';
 import { TIMEZONES } from '@/lib/timezone';
@@ -22,6 +23,8 @@ interface SettingsModalProps {
   onClose: () => void;
   apiKey: string;
   onSaveApiKey: (key: string) => void;
+  groqKey: string;
+  onSaveGroqKey: (key: string) => void;
   onLoadDemoData: () => void;
   onClearAllData: () => void;
   events: ScheduleEvent[];
@@ -33,17 +36,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onClose,
   apiKey,
   onSaveApiKey,
+  groqKey,
+  onSaveGroqKey,
   onLoadDemoData,
   onClearAllData,
   events,
   onImportEvents,
 }) => {
   const [inputKey, setInputKey] = useState(apiKey);
+  const [inputGroqKey, setInputGroqKey] = useState(groqKey);
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [savedGroqSuccess, setSavedGroqSuccess] = useState(false);
 
   useEffect(() => {
     setInputKey(apiKey);
-  }, [apiKey, isOpen]);
+    setInputGroqKey(groqKey);
+  }, [apiKey, groqKey, isOpen]);
 
   if (!isOpen) return null;
 
@@ -52,6 +60,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     onSaveApiKey(inputKey.trim());
     setSavedSuccess(true);
     setTimeout(() => setSavedSuccess(false), 3000);
+  };
+
+  const handleSaveGroqKey = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSaveGroqKey(inputGroqKey.trim());
+    setSavedGroqSuccess(true);
+    setTimeout(() => setSavedGroqSuccess(false), 3000);
   };
 
   const handleExportJSON = () => {
@@ -148,6 +163,56 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             >
               <ExternalLink className="w-3.5 h-3.5" />
               Obtén tu clave gratis en Google AI Studio (sin tarjeta de crédito)
+            </a>
+          </div>
+
+          <hr className="border-slate-800" />
+
+          {/* Sección de Groq API Key (para Chat IA - Llama 3.1 70B) */}
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                <Zap className="w-3.5 h-3.5 text-green-400" />
+                Clave de API de Groq (Gratis - Recomendado para Chat)
+              </label>
+              <p className="text-xs text-slate-400">
+                Para el asistente de agenda (chat). Groq usa Llama 3.1 70B: <strong>ultra-rápido</strong>, 14,400 req/día gratis, mejor razonamiento que Gemini Flash.
+              </p>
+            </div>
+
+            <form onSubmit={handleSaveGroqKey} className="space-y-2">
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={inputGroqKey}
+                  onChange={(e) => setInputGroqKey(e.target.value)}
+                  placeholder="gsk_..."
+                  className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-sm text-white font-mono focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+                <button
+                  type="submit"
+                  className="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5 shrink-0"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  Guardar
+                </button>
+              </div>
+
+              {savedGroqSuccess && (
+                <p className="text-xs text-emerald-400 flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> Clave Groq guardada correctamente.
+                </p>
+              )}
+            </form>
+
+            <a
+              href="https://console.groq.com/keys"
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 text-xs text-green-400 hover:text-green-300 transition-colors"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              Obtén tu clave gratis en Groq Console (sin tarjeta de crédito)
             </a>
           </div>
 

@@ -95,19 +95,39 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ events
   const webcalUrl = syncId && originUrl ? `webcal://${originUrl}/api/calendar/feed/${syncId}` : '';
   const httpsFeedUrl = syncId && originUrl ? `https://${originUrl}/api/calendar/feed/${syncId}` : '';
 
+  // Detectar si estamos en iOS PWA (standalone mode)
+  const isIOSPWA = typeof window !== 'undefined' && 
+    /iPad|iPhone|iPod/.test(navigator.userAgent) && 
+    window.matchMedia('(display-mode: standalone)').matches;
+
+  // Función para abrir enlace de calendario en Safari (requerido en iOS PWA)
+  const openCalendarInSafari = (url: string) => {
+    if (isIOSPWA) {
+      // En PWA iOS: crear enlace temporal y forzar apertura en nueva pestaña (Safari)
+      const a = document.createElement('a');
+      a.href = url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } else {
+      // Navegador normal: navegación directa
+      window.location.href = url;
+    }
+  };
+
   const handleSubscribe = async () => {
     if (!httpsFeedUrl) {
       const newSyncId = await syncWithCloudFeed();
       if (newSyncId && originUrl) {
         confetti({ particleCount: 70, spread: 60 });
-        // Usar https:// en lugar de webcal:// para mejor compatibilidad con iOS Safari
-        window.location.href = `https://${originUrl}/api/calendar/feed/${newSyncId}`;
+        openCalendarInSafari(`https://${originUrl}/api/calendar/feed/${newSyncId}`);
       }
       return;
     }
     confetti({ particleCount: 70, spread: 60 });
-    // En iOS, https:// funciona mejor que webcal:// cuando se abre desde una PWA
-    window.location.href = httpsFeedUrl;
+    openCalendarInSafari(httpsFeedUrl);
   };
 
   const handleCopyLink = async () => {

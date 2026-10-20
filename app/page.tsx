@@ -31,11 +31,13 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { storage } from '@/lib/storage';
+import { useGroqApiKey } from '@/hooks/useGroqApiKey';
 
 export default function HomePage() {
   const [events, setEvents] = useState<ScheduleEvent[]>([]);
   const [activeTab, setActiveTab] = useState<ActiveTab>('calendar');
   const [userApiKey, setUserApiKey] = useState<string>('');
+  const { apiKey: groqApiKey, saveApiKey: saveGroqApiKey } = useGroqApiKey();
   
   // Modales
   const [isUploadOpen, setIsUploadOpen] = useState(false);
@@ -50,9 +52,10 @@ export default function HomePage() {
     const loadData = async () => {
       if (typeof window !== 'undefined') {
         try {
-          const [savedEvents, savedKey] = await Promise.all([
+          const [savedEvents, savedKey, savedGroqKey] = await Promise.all([
             storage.getEvents(),
             storage.getApiKey(),
+            storage.getItem<string>('mihorario_groq_key_v1'),
           ]);
           if (mounted) {
             if (savedEvents.length > 0) {
@@ -61,6 +64,7 @@ export default function HomePage() {
               setEvents(DEMO_EVENTS);
             }
             if (savedKey) setUserApiKey(savedKey);
+            if (savedGroqKey) saveGroqApiKey(savedGroqKey);
           }
         } catch {
           if (mounted) setEvents(DEMO_EVENTS);
@@ -69,7 +73,7 @@ export default function HomePage() {
     };
     loadData();
     return () => { mounted = false; };
-  }, []);
+  }, [saveGroqApiKey]);
 
   // Guardar en IndexedDB cada vez que cambien los eventos
   const updateEvents = useCallback(async (newEvents: ScheduleEvent[]) => {
@@ -373,6 +377,8 @@ export default function HomePage() {
         onClose={() => setIsSettingsOpen(false)}
         apiKey={userApiKey}
         onSaveApiKey={handleSaveApiKey}
+        groqKey={groqApiKey}
+        onSaveGroqKey={saveGroqApiKey}
         onLoadDemoData={() => updateEvents(DEMO_EVENTS)}
         onClearAllData={() => updateEvents([])}
         events={events}
@@ -382,6 +388,7 @@ export default function HomePage() {
       <ScheduleChat
         events={events}
         apiKey={userApiKey}
+        groqKey={groqApiKey}
         onApplyEvents={updateEvents}
       />
     </div>
