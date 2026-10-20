@@ -256,10 +256,10 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ events
       </div>
 
       <SubscribeModal 
-        isOpen={false} 
-        onClose={() => {}} 
+        isOpen={showSubscribeModal} 
+        onClose={() => setShowSubscribeModal(false)} 
         subscribeUrl={subscribeUrl} 
-        onCopyLink={() => {}} 
+        onCopyLink={() => { navigator.clipboard.writeText(subscribeUrl); }} 
       />
     </div>
   );

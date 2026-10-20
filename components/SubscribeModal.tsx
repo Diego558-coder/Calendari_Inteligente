@@ -52,7 +52,7 @@ export const SubscribeModal: React.FC<SubscribeModalProps> = ({
                   onClick={(e) => { (e.target as HTMLInputElement).select(); navigator.clipboard.writeText(subscribeUrl); }}
                 />
                 <button 
-                  onClick={() => { navigator.clipboard.writeText(subscribeUrl); }}
+                  onClick={onCopyLink}
                   className="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-2 rounded-lg text-xs font-semibold"
                 >
                   Copiar
@@ -74,7 +74,7 @@ export const SubscribeModal: React.FC<SubscribeModalProps> = ({
           </div>
           
           <button 
-            onClick={() => { }}
+            onClick={onClose}
             className="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-3 rounded-xl font-semibold text-sm"
           >
             Entendido, voy a Safari
