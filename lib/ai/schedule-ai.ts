@@ -81,38 +81,16 @@ const DAY_KEYS = DAYS_OF_WEEK.map((d) => d.key);
 // Lectura de horarios desde una foto
 // ---------------------------------------------------------------------------
 
-const IMAGE_SCHEMA_GEMINI = {
-  type: 'OBJECT',
-  properties: {
-    items: {
-      type: 'ARRAY',
-      items: {
-        type: 'OBJECT',
-        properties: {
-          title: { type: 'STRING', description: 'Nombre de la materia, curso o turno' },
-          dayOfWeek: { type: 'STRING', enum: DAY_KEYS },
-          startTime: { type: 'STRING', description: 'HH:mm en 24 horas' },
-          endTime: { type: 'STRING', description: 'HH:mm en 24 horas' },
-          location: { type: 'STRING', nullable: true },
-          teacher: { type: 'STRING', nullable: true },
-          notes: { type: 'STRING', nullable: true },
-        },
-        required: ['title', 'dayOfWeek', 'startTime', 'endTime'],
-      },
-    },
-    warning: { type: 'STRING', nullable: true },
-  },
-  required: ['items'],
-};
-
 const nullableString = { type: ['string', 'null'] };
 
+// La lista se llama "blocks" (no "items"): "items" es una palabra reservada de los esquemas JSON
+// y con ella Gemini terminaba devolviendo un solo elemento.
 const IMAGE_SCHEMA_STRICT = {
   type: 'object',
   additionalProperties: false,
-  required: ['items', 'warning'],
+  required: ['blocks', 'warning'],
   properties: {
-    items: {
+    blocks: {
       type: 'array',
       items: {
         type: 'object',
@@ -159,7 +137,8 @@ Reglas:
 12. Si el usuario da indicaciones, tienen PRIORIDAD sobre estas reglas.
 13. "warning" es un mensaje corto en español para el usuario: qué corregiste, diferencias entre la imagen y el texto, bloques dudosos, o por qué no hay resultados. Usa null si no hay nada importante que decir.
 
-Devuelve únicamente JSON: {"items": [{"title": "...", "dayOfWeek": "lunes", "startTime": "07:00", "endTime": "09:00", "location": null, "teacher": null, "notes": null}], "warning": null}`;
+Devuelve únicamente JSON con esta forma, con UN elemento en "blocks" por cada bloque encontrado (pueden ser muchos):
+{"blocks": [{"title": "...", "dayOfWeek": "lunes", "startTime": "07:00", "endTime": "09:00", "location": null, "teacher": null, "notes": null}, {"title": "...", "dayOfWeek": "martes", "startTime": "18:00", "endTime": "19:00", "location": null, "teacher": null, "notes": null}], "warning": null}`;
 }
 
 /**
@@ -201,6 +180,7 @@ export interface ScheduleExtractionResult {
   /** Diagnóstico: cuántos bloques devolvió la IA y una muestra de los que no se pudieron usar */
   returned: number;
   discardedSample: unknown[];
+  rawPreview?: string;
 }
 
 function describeForPrompt(events: ScheduleEvent[]): string {
@@ -256,7 +236,7 @@ export async function extractSchedule(params: {
           systemPrompt: system,
           // Imagen primero y luego la instrucción, como recomienda Google
           parts: source.image ? [{ inlineData: { mimeType: source.image.mimeType, data: source.image.base64 } }, { text: request }] : [{ text: request }],
-          responseSchema: IMAGE_SCHEMA_GEMINI,
+          // Sin responseSchema: solo modo JSON (el formato va en el prompt). Con esquema, Gemini 3 devolvía un único bloque.
           highResolutionImages: hasImage,
           fastThinking: !hasImage,
           // Límite por modelo: si uno está lento o saturado se pasa al siguiente sin agotar el plazo
@@ -296,7 +276,13 @@ export async function extractSchedule(params: {
   // Con imagen, Gemini lee mejor; solo con texto, Groq es más rápido y tiene más cuota
   const attempts = (hasImage ? [geminiAttempt, groqAttempt] : [groqAttempt, geminiAttempt]).filter((a): a is ProviderAttempt => Boolean(a));
   const result = await runWithFallback(attempts);
-  const rawItems: unknown[] = Array.isArray(result.data?.items) ? result.data.items : Array.isArray(result.data) ? result.data : [];
+  const rawItems: unknown[] = Array.isArray(result.data?.blocks)
+    ? result.data.blocks
+    : Array.isArray(result.data?.items)
+    ? result.data.items
+    : Array.isArray(result.data)
+    ? result.data
+    : [];
 
   // Si el usuario habla de los bloques "Disponible", respetar su indicación en vez del filtro automático
   const userMentionsAvailability = /disponib|availab/i.test(`${source.instructions || ''} ${source.correction || ''}`);
@@ -334,6 +320,8 @@ export async function extractSchedule(params: {
     note,
     returned: rawItems.length,
     discardedSample: discarded.slice(0, 3),
+    // Si llegaron muy pocos bloques, un extracto de la respuesta cruda ayuda a entender por qué
+    rawPreview: rawItems.length < 3 ? result.raw?.slice(0, 800) : undefined,
   };
 }
 

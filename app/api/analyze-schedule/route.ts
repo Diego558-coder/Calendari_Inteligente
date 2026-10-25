@@ -70,7 +70,7 @@ export async function POST(req: NextRequest) {
     const type: EventType = body.scheduleType === 'work' ? 'work' : 'university';
     const result = await extractSchedule({ source, scheduleType: type, keys });
 
-    const diagnostics = { returned: result.returned, discardedSample: result.discardedSample };
+    const diagnostics = { returned: result.returned, discardedSample: result.discardedSample, rawPreview: result.rawPreview };
     if (result.events.length === 0 && !source.correction) {
       return NextResponse.json(
         {

@@ -119,6 +119,8 @@ export interface GeminiJsonRequest {
 export interface AiJsonResult {
   data: any;
   model: string;
+  /** Texto tal como lo devolvió el modelo (para diagnóstico) */
+  raw?: string;
 }
 
 /**
@@ -180,7 +182,7 @@ export async function geminiGenerateJson(req: GeminiJsonRequest): Promise<AiJson
           break;
         }
         try {
-          return { data: extractJson(text), model };
+          return { data: extractJson(text), model, raw: text };
         } catch {
           failures.push({ model, code: 'BAD_RESPONSE', detail: text.slice(0, 200) });
           break;

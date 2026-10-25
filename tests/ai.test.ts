@@ -134,7 +134,8 @@ async function main() {
   assert.equal(req.contents[0].parts[0].inlineData.mimeType, 'image/png', 'la imagen va antes que el texto');
   assert.equal(req.generationConfig.mediaResolution, 'MEDIA_RESOLUTION_HIGH');
   assert.equal(req.generationConfig.temperature, undefined, 'Gemini 3 usa la temperatura por defecto');
-  assert.ok(req.generationConfig.responseSchema);
+  assert.equal(req.generationConfig.responseSchema, undefined, 'extracción sin esquema (Gemini devolvía un solo bloque)');
+  assert.equal(req.generationConfig.responseMimeType, 'application/json');
   console.log('✓ foto: Gemini directo (ignora partes de "pensamiento")');
 
   // 6. Horario de trabajo tipo plataforma: bloques verdes "Disponible" + clases asignadas en azul

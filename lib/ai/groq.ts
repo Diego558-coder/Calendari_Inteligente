@@ -136,7 +136,7 @@ export async function groqGenerateJson(req: GroqJsonRequest): Promise<AiJsonResu
           break;
         }
         try {
-          return { data: extractJson(content), model };
+          return { data: extractJson(content), model, raw: content };
         } catch {
           failures.push({ model, code: 'BAD_RESPONSE', detail: content.slice(0, 200) });
           break;
