@@ -121,7 +121,7 @@ export async function groqGenerateJson(req: GroqJsonRequest): Promise<AiJsonResu
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${req.apiKey}` },
             body: JSON.stringify(body),
           },
-          Math.min(remaining, 40000)
+          Math.min(remaining - 1000, 30000)
         );
       } catch (err) {
         failures.push({ model, code: isAbortError(err) ? 'TIMEOUT' : 'NETWORK', detail: String(err) });
@@ -150,7 +150,8 @@ export async function groqGenerateJson(req: GroqJsonRequest): Promise<AiJsonResu
       if (res.status === 400 && full && !/decommissioned|does not exist|model_not_found/i.test(text)) {
         continue; // reintentar el mismo modelo en modo JSON simple
       }
-      failures.push({ model, code: res.status === 429 ? 'QUOTA' : 'NO_MODEL', detail: `${res.status}: ${text.slice(0, 200)}` });
+      const code = res.status === 429 ? 'QUOTA' : res.status >= 500 ? 'OVERLOADED' : 'NO_MODEL';
+      failures.push({ model, code, detail: `${res.status}: ${text.slice(0, 200)}` });
       break;
     }
   }

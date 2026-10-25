@@ -382,7 +382,7 @@ export const PhotoUploader: React.FC<PhotoUploaderProps> = ({
               <div>
                 <p className="font-semibold text-red-200">No se pudo procesar la imagen</p>
                 <p className="mt-0.5">{errorMsg}</p>
-                {(errorCode === 'NO_KEY' || errorCode === 'INVALID_KEY' || errorCode === 'QUOTA') && (
+                {(errorCode === 'NO_KEY' || errorCode === 'INVALID_KEY' || errorCode === 'QUOTA' || errorCode === 'OVERLOADED') && (
                   <button
                     type="button"
                     onClick={onOpenSettings}

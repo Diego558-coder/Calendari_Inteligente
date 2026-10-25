@@ -108,8 +108,10 @@ export interface GeminiJsonRequest {
   /** Momento límite (epoch ms) para todos los intentos */
   deadline: number;
   maxModels?: number;
-  /** Bajar el razonamiento interno para responder más rápido (chat) */
+  /** Bajar el razonamiento interno para responder más rápido */
   fastThinking?: boolean;
+  /** Tiempo máximo por modelo, para que uno lento no consuma todo el plazo */
+  perCallTimeoutMs?: number;
 }
 
 export interface AiJsonResult {
@@ -137,7 +139,7 @@ export async function geminiGenerateJson(req: GeminiJsonRequest): Promise<AiJson
         responseMimeType: 'application/json',
       };
       if (full && req.responseSchema) generationConfig.responseSchema = req.responseSchema;
-      if (full && req.fastThinking && /gemini-3/.test(model)) generationConfig.thinkingConfig = { thinkingLevel: 'low' };
+      if (full && req.fastThinking && /gemini-3|latest/.test(model)) generationConfig.thinkingConfig = { thinkingLevel: 'low' };
 
       let res: Response;
       try {
@@ -152,7 +154,7 @@ export async function geminiGenerateJson(req: GeminiJsonRequest): Promise<AiJson
               generationConfig,
             }),
           },
-          Math.min(remaining, 45000)
+          Math.min(remaining - 1000, req.perCallTimeoutMs ?? 45000)
         );
       } catch (err) {
         failures.push({ model, code: isAbortError(err) ? 'TIMEOUT' : 'NETWORK', detail: String(err) });
@@ -186,7 +188,9 @@ export async function geminiGenerateJson(req: GeminiJsonRequest): Promise<AiJson
       if (res.status === 400 && full) {
         continue; // reintentar el mismo modelo sin esquema/razonamiento
       }
-      failures.push({ model, code: res.status === 429 ? 'QUOTA' : 'NO_MODEL', detail: `${res.status}: ${body.slice(0, 200)}` });
+      // 503 "high demand" es habitual en el plan gratuito: se pasa al siguiente modelo (los Lite suelen estar libres)
+      const code = res.status === 429 ? 'QUOTA' : res.status >= 500 ? 'OVERLOADED' : 'NO_MODEL';
+      failures.push({ model, code, detail: `${res.status}: ${body.slice(0, 200)}` });
       break;
     }
   }

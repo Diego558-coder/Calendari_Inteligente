@@ -158,7 +158,35 @@ async function main() {
   assert.match(prompt, /DISPONIBILIDAD NO son actividades/);
   console.log('✓ foto: bloques "Disponible" descartados, solo quedan las clases asignadas');
 
-  // 7. Clave inválida de Gemini: se detiene enseguida (no prueba 5 modelos)
+  // 7. Modelos Flash saturados (503 "high demand") → pasa a un Flash-Lite libre, con razonamiento bajo
+  calls.length = 0;
+  handler = (url) => {
+    if (url.includes('/models?')) {
+      return { status: 200, body: { models: ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash-lite'].map((m) => ({ name: `models/${m}`, supportedGenerationMethods: ['generateContent'] })) } };
+    }
+    if (url.includes('flash-lite')) {
+      return { status: 200, body: { candidates: [{ content: { parts: [{ text: '{"items":[{"title":"M4L14","dayOfWeek":"lunes","startTime":"20:00","endTime":"21:30"}],"warning":null}' }] } }] } };
+    }
+    return { status: 503, body: { error: { code: 503, message: 'This model is currently experiencing high demand.', status: 'UNAVAILABLE' } } };
+  };
+  const busy = await extractScheduleFromImage({ imageBase64: 'EEEE', mimeType: 'image/jpeg', scheduleType: 'work', keys: { gemini: 'AIzaSy' + 'f'.repeat(33) } });
+  assert.equal(busy.model, 'gemini-3.5-flash-lite');
+  const liteRequest = calls.filter((c) => c.url.includes(':generateContent')).at(-1)!.body;
+  assert.deepEqual(liteRequest.generationConfig.thinkingConfig, { thinkingLevel: 'low' });
+  console.log('✓ foto: Flash saturados (503) → Flash-Lite, con razonamiento bajo');
+
+  // Todos saturados → mensaje claro de saturación (no "sin modelo")
+  calls.length = 0;
+  handler = (url) => url.includes('/models?')
+    ? { status: 200, body: { models: [{ name: 'models/gemini-3.8-flash', supportedGenerationMethods: ['generateContent'] }] } }
+    : { status: 503, body: { error: { status: 'UNAVAILABLE' } } };
+  await assert.rejects(
+    extractScheduleFromImage({ imageBase64: 'FFFF', mimeType: 'image/jpeg', scheduleType: 'work', keys: { gemini: 'AIzaSy' + 'g'.repeat(33) } }),
+    (err: any) => err.code === 'OVERLOADED' && /saturados/.test(err.message) && /503/.test(err.detail)
+  );
+  console.log('✓ todos saturados → error OVERLOADED con detalle');
+
+  // 8. Clave inválida de Gemini: se detiene enseguida (no prueba 5 modelos)
   calls.length = 0;
   handler = () => ({ status: 400, body: { error: { message: 'API key not valid. Please pass a valid API key.', details: [{ reason: 'API_KEY_INVALID' }] } } });
   await assert.rejects(

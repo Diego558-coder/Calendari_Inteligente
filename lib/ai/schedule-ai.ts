@@ -199,9 +199,13 @@ export async function extractScheduleFromImage(params: {
         systemPrompt: system,
         parts: [{ text: instruction }, { inlineData: { mimeType, data: imageBase64 } }],
         responseSchema: IMAGE_SCHEMA_GEMINI,
+        // Leer un horario no necesita razonar a fondo: así responde en segundos en vez de casi un minuto
+        fastThinking: true,
+        perCallTimeoutMs: 20_000,
         // Si Groq también está configurado, dejar tiempo para usarlo como respaldo
         deadline: keys.groq ? deadline - 20_000 : deadline,
-        maxModels: 4,
+        // Incluye los Flash-Lite, que suelen estar libres cuando los Flash están saturados
+        maxModels: 6,
       }),
     });
   }
@@ -434,8 +438,9 @@ export async function runScheduleChat(params: {
         responseSchema: CHAT_SCHEMA_GEMINI,
         temperature: 0.2,
         fastThinking: true,
+        perCallTimeoutMs: 15_000,
         deadline,
-        maxModels: 3,
+        maxModels: 4,
       }),
     });
   }

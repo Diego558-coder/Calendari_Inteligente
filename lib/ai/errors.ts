@@ -4,6 +4,7 @@ export type AiErrorCode =
   | 'NO_KEY'        // No hay clave configurada para el proveedor
   | 'INVALID_KEY'   // La clave fue rechazada (401/403 o API_KEY_INVALID)
   | 'QUOTA'         // Se agotó la cuota gratuita (429)
+  | 'OVERLOADED'    // Servidores saturados o caídos (500/503)
   | 'NO_MODEL'      // Ningún modelo compatible respondió
   | 'TIMEOUT'       // El proveedor tardó demasiado
   | 'BAD_RESPONSE'  // Respondió algo que no es el JSON esperado
@@ -36,6 +37,8 @@ export function friendlyAiMessage(code: AiErrorCode, provider: AiProvider): stri
       return `La clave de ${name} no es válida o fue revocada. Revísala en Ajustes.`;
     case 'QUOTA':
       return `Se agotó por ahora la cuota gratuita de ${name}. Espera unos minutos o usa la otra IA en Ajustes.`;
+    case 'OVERLOADED':
+      return `Los servidores gratuitos de ${name} están saturados en este momento. Intenta de nuevo en unos minutos (tener también la otra IA en Ajustes sirve de respaldo).`;
     case 'TIMEOUT':
       return `${name} tardó demasiado en responder. Intenta de nuevo.`;
     case 'NO_MODEL':
@@ -50,7 +53,7 @@ export function friendlyAiMessage(code: AiErrorCode, provider: AiProvider): stri
 
 /** Cuerpo y estado HTTP de la respuesta de error de las rutas de IA (con detalle técnico para diagnosticar) */
 export function aiErrorResponse(err: AiError): { body: Record<string, unknown>; status: number } {
-  const status = err.code === 'QUOTA' ? 429 : err.code === 'INVALID_KEY' || err.code === 'NO_KEY' ? 422 : 502;
+  const status = err.code === 'QUOTA' ? 429 : err.code === 'OVERLOADED' ? 503 : err.code === 'INVALID_KEY' || err.code === 'NO_KEY' ? 422 : 502;
   const detail = err.detail
     ?.replace(/AIza[0-9A-Za-z_-]{20,}|gsk_[0-9A-Za-z]{20,}/g, '[clave]')
     .replace(/\s+/g, ' ')
@@ -69,6 +72,7 @@ export function failuresToError(provider: AiProvider, failures: ModelFailure[]):
   const all = (code: AiErrorCode) => failures.length > 0 && failures.every((f) => f.code === code);
   const some = (code: AiErrorCode) => failures.some((f) => f.code === code);
   const code: AiErrorCode = all('QUOTA') ? 'QUOTA'
+    : some('OVERLOADED') ? 'OVERLOADED'
     : some('TIMEOUT') ? 'TIMEOUT'
     : some('BAD_RESPONSE') ? 'BAD_RESPONSE'
     : all('NETWORK') ? 'NETWORK'
