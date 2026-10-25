@@ -182,6 +182,9 @@ export interface ImageExtractionResult {
   provider: AiProvider;
   model: string;
   warnings: string[];
+  /** Diagnóstico: cuántos bloques devolvió la IA y una muestra de los que no se pudieron usar */
+  returned: number;
+  discardedSample: unknown[];
 }
 
 export async function extractScheduleFromImage(params: {
@@ -241,10 +244,14 @@ export async function extractScheduleFromImage(params: {
   const rawItems: unknown[] = Array.isArray(result.data?.items) ? result.data.items : Array.isArray(result.data) ? result.data : [];
 
   const events: ScheduleEvent[] = [];
+  const discarded: unknown[] = [];
   let ignoredAvailability = 0;
   for (const item of rawItems) {
     const ev = sanitizeEvent({ ...(item as object), id: undefined, type: scheduleType }, scheduleType);
-    if (!ev) continue;
+    if (!ev) {
+      discarded.push(item);
+      continue;
+    }
     if (isAvailabilityBlock(ev.title)) {
       ignoredAvailability++;
       continue;
@@ -253,6 +260,9 @@ export async function extractScheduleFromImage(params: {
   }
 
   const warnings = [...result.warnings];
+  if (discarded.length > 0) {
+    warnings.push(`${discarded.length} bloques se descartaron porque no tenían un día u hora reconocibles. Revisa que no falte nada.`);
+  }
   if (ignoredAvailability > 0) {
     warnings.push(`Se ignoraron ${ignoredAvailability} bloques de "Disponible": marcan tu disponibilidad, no son clases ni turnos.`);
   }
@@ -260,7 +270,14 @@ export async function extractScheduleFromImage(params: {
     warnings.push(result.data.warning.trim());
   }
 
-  return { events, provider: result.provider, model: result.model, warnings };
+  return {
+    events,
+    provider: result.provider,
+    model: result.model,
+    warnings,
+    returned: rawItems.length,
+    discardedSample: discarded.slice(0, 3),
+  };
 }
 
 // ---------------------------------------------------------------------------

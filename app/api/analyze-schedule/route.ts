@@ -61,6 +61,8 @@ export async function POST(req: NextRequest) {
           error: result.warnings.at(-1) || 'No se detectaron clases ni turnos en la foto. Intenta con una imagen más clara, recta y bien iluminada.',
           provider: result.provider,
           model: result.model,
+          returned: result.returned,
+          discardedSample: result.discardedSample,
         },
         { status: 422 }
       );
@@ -73,6 +75,8 @@ export async function POST(req: NextRequest) {
       provider: result.provider,
       model: result.model,
       warnings: result.warnings,
+      returned: result.returned,
+      discardedSample: result.discardedSample,
     });
   } catch (err: any) {
     if (err instanceof AiError) {
