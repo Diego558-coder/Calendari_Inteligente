@@ -128,8 +128,11 @@ export interface AiJsonResult {
 export async function geminiGenerateJson(req: GeminiJsonRequest): Promise<AiJsonResult> {
   const models = (await listGeminiModels(req.apiKey)).slice(0, req.maxModels ?? 5);
   const failures: ModelFailure[] = [];
+  const queue = [...models];
+  let retriedAfterOverload = false;
 
-  for (const model of models) {
+  while (queue.length > 0) {
+    const model = queue.shift()!;
     // Primer intento con esquema estructurado; si el modelo lo rechaza (400), se reintenta sin extras
     const variants = [true, false];
     for (const full of variants) {
@@ -195,6 +198,14 @@ export async function geminiGenerateJson(req: GeminiJsonRequest): Promise<AiJson
       const code = res.status === 429 ? 'QUOTA' : res.status >= 500 ? 'OVERLOADED' : 'NO_MODEL';
       failures.push({ model, code, detail: `${res.status}: ${body.slice(0, 200)}` });
       break;
+    }
+
+    // Si TODOS estaban saturados, esperar un momento y reintentar los mejores (los picos suelen durar segundos)
+    const allOverloaded = failures.length > 0 && failures.every((f) => f.code === 'OVERLOADED');
+    if (queue.length === 0 && !retriedAfterOverload && allOverloaded && req.deadline - Date.now() > 20_000) {
+      retriedAfterOverload = true;
+      await new Promise((resolve) => setTimeout(resolve, 2500));
+      queue.push(...models.slice(0, 3));
     }
   }
 

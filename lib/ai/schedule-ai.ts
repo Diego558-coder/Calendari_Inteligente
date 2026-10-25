@@ -210,8 +210,8 @@ export async function extractScheduleFromImage(params: {
         perCallTimeoutMs: 30_000,
         // Si Groq también está configurado, dejar tiempo para usarlo como respaldo
         deadline: keys.groq ? deadline - 20_000 : deadline,
-        // Incluye los Flash-Lite, que suelen estar libres cuando los Flash están saturados
-        maxModels: 6,
+        // Incluye los Flash-Lite, que suelen estar libres cuando los Flash están saturados (los 503 responden en ~2 s)
+        maxModels: 9,
       }),
     });
   }
