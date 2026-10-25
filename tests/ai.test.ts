@@ -131,7 +131,9 @@ async function main() {
   assert.equal(scan2.model, 'gemini-flash-latest');
   assert.equal(scan2.events[0].type, 'work');
   const req = calls.find((c) => c.url.includes(':generateContent'))!.body;
-  assert.equal(req.contents[0].parts[1].inlineData.mimeType, 'image/png');
+  assert.equal(req.contents[0].parts[0].inlineData.mimeType, 'image/png', 'la imagen va antes que el texto');
+  assert.equal(req.generationConfig.mediaResolution, 'MEDIA_RESOLUTION_HIGH');
+  assert.equal(req.generationConfig.temperature, undefined, 'Gemini 3 usa la temperatura por defecto');
   assert.ok(req.generationConfig.responseSchema);
   console.log('✓ foto: Gemini directo (ignora partes de "pensamiento")');
 
@@ -172,8 +174,8 @@ async function main() {
   const busy = await extractScheduleFromImage({ imageBase64: 'EEEE', mimeType: 'image/jpeg', scheduleType: 'work', keys: { gemini: 'AIzaSy' + 'f'.repeat(33) } });
   assert.equal(busy.model, 'gemini-3.5-flash-lite');
   const liteRequest = calls.filter((c) => c.url.includes(':generateContent')).at(-1)!.body;
-  assert.deepEqual(liteRequest.generationConfig.thinkingConfig, { thinkingLevel: 'low' });
-  console.log('✓ foto: Flash saturados (503) → Flash-Lite, con razonamiento bajo');
+  assert.equal(liteRequest.generationConfig.mediaResolution, 'MEDIA_RESOLUTION_HIGH');
+  console.log('✓ foto: Flash saturados (503) → Flash-Lite, imagen en alta resolución');
 
   // Todos saturados → mensaje claro de saturación (no "sin modelo")
   calls.length = 0;

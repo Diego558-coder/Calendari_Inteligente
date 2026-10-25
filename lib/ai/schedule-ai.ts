@@ -139,8 +139,13 @@ function imageSystemPrompt(scheduleType: EventType): string {
 
 El horario es principalmente de: ${kind}.
 
+Procedimiento (síguelo en orden, sin saltarte nada):
+A. Identifica las columnas de días (lunes a domingo) y el rango de horas de la cuadrícula.
+B. Recorre CADA columna de arriba hacia abajo y anota TODOS los bloques asignados que veas en ella; un día puede tener varios bloques seguidos.
+C. Antes de responder, revisa columna por columna que no falte ningún bloque asignado.
+
 Reglas:
-1. Extrae CADA bloque con una actividad asignada (materia, clase, grupo, turno). Si una materia o turno ocurre varios días, crea un elemento por cada día.
+1. Extrae CADA bloque con una actividad asignada (materia, clase, grupo, turno), en todos los días. Si una materia o turno ocurre varios días, crea un elemento por cada día.
 2. MUY IMPORTANTE: los bloques de DISPONIBILIDAD NO son actividades. Ignora por completo los bloques cuyo texto sea "Disponible", "Disponibilidad", "Available", "Libre", "Free", "Abierto", "Sin asignar" o similar, aunque ocupen casi todo el día. En plataformas de trabajo suelen ser bloques de un color (por ejemplo verdes) y las clases o turnos asignados son de otro color (por ejemplo azules): extrae SOLO los asignados.
 3. Si el bloque trae su hora escrita (por ejemplo "20:00-21:30"), usa EXACTAMENTE esa hora. Solo estima por la posición en la cuadrícula cuando el bloque no tiene hora escrita.
 4. En tablas donde las filas son horas y las columnas días, un bloque que ocupa varias filas seguidas es UNA sola actividad desde la primera hora hasta el final de la última. Si las columnas muestran fechas (02.11.2026), usa solo el día de la semana del encabezado.
@@ -188,7 +193,7 @@ export async function extractScheduleFromImage(params: {
   const { imageBase64, mimeType, scheduleType, keys } = params;
   const deadline = Date.now() + 55_000;
   const system = imageSystemPrompt(scheduleType);
-  const instruction = `Extrae todos los bloques de ${scheduleType === 'work' ? 'turnos de trabajo' : 'clases'} de esta imagen y devuelve el JSON.`;
+  const instruction = `Extrae TODOS los bloques de ${scheduleType === 'work' ? 'turnos o clases asignadas de trabajo' : 'clases'} de esta imagen, revisando cada día de la semana, y devuelve el JSON.`;
 
   const attempts: ProviderAttempt[] = [];
   if (keys.gemini) {
@@ -197,11 +202,12 @@ export async function extractScheduleFromImage(params: {
       run: () => geminiGenerateJson({
         apiKey: keys.gemini!,
         systemPrompt: system,
-        parts: [{ text: instruction }, { inlineData: { mimeType, data: imageBase64 } }],
+        // Imagen primero y luego la instrucción, como recomienda Google
+        parts: [{ inlineData: { mimeType, data: imageBase64 } }, { text: instruction }],
         responseSchema: IMAGE_SCHEMA_GEMINI,
-        // Leer un horario no necesita razonar a fondo: así responde en segundos en vez de casi un minuto
-        fastThinking: true,
-        perCallTimeoutMs: 20_000,
+        highResolutionImages: true,
+        // Límite por modelo: si uno está lento o saturado se pasa al siguiente sin agotar el plazo
+        perCallTimeoutMs: 30_000,
         // Si Groq también está configurado, dejar tiempo para usarlo como respaldo
         deadline: keys.groq ? deadline - 20_000 : deadline,
         // Incluye los Flash-Lite, que suelen estar libres cuando los Flash están saturados

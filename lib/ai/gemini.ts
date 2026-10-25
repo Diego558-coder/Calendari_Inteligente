@@ -112,6 +112,8 @@ export interface GeminiJsonRequest {
   fastThinking?: boolean;
   /** Tiempo máximo por modelo, para que uno lento no consuma todo el plazo */
   perCallTimeoutMs?: number;
+  /** Leer imágenes en alta resolución (necesario para texto pequeño en capturas) */
+  highResolutionImages?: boolean;
 }
 
 export interface AiJsonResult {
@@ -134,12 +136,13 @@ export async function geminiGenerateJson(req: GeminiJsonRequest): Promise<AiJson
       const remaining = req.deadline - Date.now();
       if (remaining < 4000) break;
 
-      const generationConfig: Record<string, unknown> = {
-        temperature: req.temperature ?? 0.1,
-        responseMimeType: 'application/json',
-      };
+      const isGemini3 = /gemini-3|latest/.test(model);
+      const generationConfig: Record<string, unknown> = { responseMimeType: 'application/json' };
+      // Google recomienda no bajar la temperatura en Gemini 3 (con valores bajos rinde peor)
+      if (!isGemini3) generationConfig.temperature = req.temperature ?? 0.1;
       if (full && req.responseSchema) generationConfig.responseSchema = req.responseSchema;
-      if (full && req.fastThinking && /gemini-3|latest/.test(model)) generationConfig.thinkingConfig = { thinkingLevel: 'low' };
+      if (full && req.fastThinking && isGemini3) generationConfig.thinkingConfig = { thinkingLevel: 'low' };
+      if (full && req.highResolutionImages) generationConfig.mediaResolution = 'MEDIA_RESOLUTION_HIGH';
 
       let res: Response;
       try {
