@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { runScheduleChat, extractScheduleFromImage } from '@/lib/ai/schedule-ai';
+import { runScheduleChat, extractSchedule } from '@/lib/ai/schedule-ai';
 import { ScheduleEvent } from '@/types/schedule';
 
 type Handler = (url: string, init: any) => { status: number; body: any };
@@ -106,7 +106,7 @@ async function main() {
       ] }) } }] },
     };
   };
-  const scan = await extractScheduleFromImage({ imageBase64: 'AAAA', mimeType: 'image/jpeg', scheduleType: 'university', keys: { gemini: 'AIzaSy' + 'b'.repeat(33), groq: 'gsk_' + 'a'.repeat(40) } });
+  const scan = await extractSchedule({ source: { image: { base64: 'AAAA', mimeType: 'image/jpeg' } }, scheduleType: 'university', keys: { gemini: 'AIzaSy' + 'b'.repeat(33), groq: 'gsk_' + 'a'.repeat(40) } });
   assert.equal(scan.provider, 'groq');
   assert.equal(scan.model, 'qwen/qwen3.8-27b');
   assert.equal(scan.events.length, 2, 'duplicado y sin título descartados');
@@ -127,7 +127,7 @@ async function main() {
     if (url.includes('/models?')) return { status: 200, body: { models: [{ name: 'models/gemini-flash-latest', supportedGenerationMethods: ['generateContent'] }] } };
     return { status: 200, body: { candidates: [{ content: { parts: [{ text: 'pensando', thought: true }, { text: '{"items":[{"title":"Turno mañana","dayOfWeek":"sabado","startTime":"06:00","endTime":"14:00"}],"warning":null}' }] } }] } };
   };
-  const scan2 = await extractScheduleFromImage({ imageBase64: 'BBBB', mimeType: 'image/png', scheduleType: 'work', keys: { gemini: 'AIzaSy' + 'c'.repeat(33) } });
+  const scan2 = await extractSchedule({ source: { image: { base64: 'BBBB', mimeType: 'image/png' } }, scheduleType: 'work', keys: { gemini: 'AIzaSy' + 'c'.repeat(33) } });
   assert.equal(scan2.model, 'gemini-flash-latest');
   assert.equal(scan2.events[0].type, 'work');
   const req = calls.find((c) => c.url.includes(':generateContent'))!.body;
@@ -150,7 +150,7 @@ async function main() {
     ];
     return { status: 200, body: { candidates: [{ content: { parts: [{ text: JSON.stringify({ items, warning: null }) }] } }] } };
   };
-  const work = await extractScheduleFromImage({ imageBase64: 'DDDD', mimeType: 'image/jpeg', scheduleType: 'work', keys: { gemini: 'AIzaSy' + 'e'.repeat(33) } });
+  const work = await extractSchedule({ source: { image: { base64: 'DDDD', mimeType: 'image/jpeg' } }, scheduleType: 'work', keys: { gemini: 'AIzaSy' + 'e'.repeat(33) } });
   assert.deepEqual(work.events.map((e) => [e.title, e.dayOfWeek, e.startTime, e.endTime, e.notes]), [
     ['M4L14', 'lunes', '20:00', '21:30', 'COL13241_LU-20'],
     ['M1L3', 'martes', '18:00', '19:00', 'PRM_COL14394_MA-18'],
@@ -171,7 +171,7 @@ async function main() {
     }
     return { status: 503, body: { error: { code: 503, message: 'This model is currently experiencing high demand.', status: 'UNAVAILABLE' } } };
   };
-  const busy = await extractScheduleFromImage({ imageBase64: 'EEEE', mimeType: 'image/jpeg', scheduleType: 'work', keys: { gemini: 'AIzaSy' + 'f'.repeat(33) } });
+  const busy = await extractSchedule({ source: { image: { base64: 'EEEE', mimeType: 'image/jpeg' } }, scheduleType: 'work', keys: { gemini: 'AIzaSy' + 'f'.repeat(33) } });
   assert.equal(busy.model, 'gemini-3.5-flash-lite');
   const liteRequest = calls.filter((c) => c.url.includes(':generateContent')).at(-1)!.body;
   assert.equal(liteRequest.generationConfig.mediaResolution, 'MEDIA_RESOLUTION_HIGH');
@@ -183,16 +183,74 @@ async function main() {
     ? { status: 200, body: { models: [{ name: 'models/gemini-3.8-flash', supportedGenerationMethods: ['generateContent'] }] } }
     : { status: 503, body: { error: { status: 'UNAVAILABLE' } } };
   await assert.rejects(
-    extractScheduleFromImage({ imageBase64: 'FFFF', mimeType: 'image/jpeg', scheduleType: 'work', keys: { gemini: 'AIzaSy' + 'g'.repeat(33) } }),
+    extractSchedule({ source: { image: { base64: 'FFFF', mimeType: 'image/jpeg' } }, scheduleType: 'work', keys: { gemini: 'AIzaSy' + 'g'.repeat(33) } }),
     (err: any) => err.code === 'OVERLOADED' && /saturados/.test(err.message) && /503/.test(err.detail)
   );
   console.log('✓ todos saturados → error OVERLOADED con detalle');
 
-  // 8. Clave inválida de Gemini: se detiene enseguida (no prueba 5 modelos)
+  // 8. Solo texto pegado: usa Groq primero (sin visión) y el texto llega en el mensaje
+  calls.length = 0;
+  handler = (url) => {
+    if (url.endsWith('/models')) return { status: 200, body: groqModels };
+    return { status: 200, body: { choices: [{ message: { content: JSON.stringify({ warning: null, items: [
+      { title: 'M1L3', dayOfWeek: 'martes', startTime: '18:00', endTime: '19:00', location: null, teacher: null, notes: 'PRM_COL14394_MA-18' },
+    ] }) } }] } };
+  };
+  const fromText = await extractSchedule({
+    source: { text: 'martes 18:00-19:00 M1L3 PRM_COL14394_MA-18' },
+    scheduleType: 'work',
+    keys: { gemini: 'AIzaSy' + 'h'.repeat(33), groq: 'gsk_' + 'a'.repeat(40) },
+  });
+  assert.equal(fromText.provider, 'groq');
+  const textCall = calls.find((c) => c.url.endsWith('/chat/completions'))!.body;
+  assert.equal(textCall.model, 'openai/gpt-oss-120b', 'modelo de texto, no de visión');
+  assert.match(textCall.messages[1].content, /martes 18:00-19:00 M1L3/);
+  console.log('✓ texto pegado: Groq de texto primero');
+
+  // 9. Corrección con indicaciones: la IA recibe la lista anterior, la corrección y las indicaciones
+  calls.length = 0;
+  handler = (url) => {
+    if (url.includes('/models?')) return { status: 200, body: { models: [{ name: 'models/gemini-3.6-flash', supportedGenerationMethods: ['generateContent'] }] } };
+    return { status: 200, body: { candidates: [{ content: { parts: [{ text: JSON.stringify({ warning: 'Agregué el bloque del martes 19:15.', items: [
+      { title: 'M4L14', dayOfWeek: 'lunes', startTime: '20:00', endTime: '21:30', notes: 'COL13241_LU-20' },
+      { title: 'M10L38', dayOfWeek: 'martes', startTime: '19:15', endTime: '20:15', notes: 'PRM_COL10979_MA-19' },
+    ] }) }] } }] } };
+  };
+  const corrected = await extractSchedule({
+    source: {
+      image: { base64: 'GGGG', mimeType: 'image/jpeg' },
+      instructions: 'Las clases son los cuadros azules',
+      previous: [{ id: 'p1', title: 'M4L14', type: 'work', dayOfWeek: 'lunes', startTime: '20:00', endTime: '21:30' }],
+      correction: 'Falta el martes 19:15 M10L38',
+    },
+    scheduleType: 'work',
+    keys: { gemini: 'AIzaSy' + 'i'.repeat(33) },
+  });
+  assert.equal(corrected.events.length, 2);
+  assert.equal(corrected.note, 'Agregué el bloque del martes 19:15.');
+  const sentText = calls.find((c) => c.url.includes(':generateContent'))!.body.contents[0].parts[1].text;
+  assert.match(sentText, /cuadros azules/);
+  assert.match(sentText, /- lunes 20:00-21:30 \| M4L14/);
+  assert.match(sentText, /Falta el martes 19:15 M10L38/);
+  console.log('✓ corrección: envía indicaciones, lista anterior y pedido; devuelve la lista completa');
+
+  // 10. Si el usuario habla de los "Disponible", se respeta su indicación (no se filtran)
+  handler = (url) => url.includes('/models?')
+    ? { status: 200, body: { models: [{ name: 'models/gemini-3.6-flash', supportedGenerationMethods: ['generateContent'] }] } }
+    : { status: 200, body: { candidates: [{ content: { parts: [{ text: '{"warning":null,"items":[{"title":"Disponible","dayOfWeek":"lunes","startTime":"06:00","endTime":"20:00"}]}' }] } }] } };
+  const keepAvailability = await extractSchedule({
+    source: { image: { base64: 'HHHH', mimeType: 'image/jpeg' }, instructions: 'Incluye también los bloques Disponible como turnos' },
+    scheduleType: 'work',
+    keys: { gemini: 'AIzaSy' + 'j'.repeat(33) },
+  });
+  assert.equal(keepAvailability.events.length, 1);
+  console.log('✓ indicaciones del usuario tienen prioridad sobre el filtro de "Disponible"');
+
+  // 11. Clave inválida de Gemini: se detiene enseguida (no prueba 5 modelos)
   calls.length = 0;
   handler = () => ({ status: 400, body: { error: { message: 'API key not valid. Please pass a valid API key.', details: [{ reason: 'API_KEY_INVALID' }] } } });
   await assert.rejects(
-    extractScheduleFromImage({ imageBase64: 'CCCC', mimeType: 'image/jpeg', scheduleType: 'university', keys: { gemini: 'AIzaSy' + 'd'.repeat(33) } }),
+    extractSchedule({ source: { image: { base64: 'CCCC', mimeType: 'image/jpeg' } }, scheduleType: 'university', keys: { gemini: 'AIzaSy' + 'd'.repeat(33) } }),
     (err: any) => err.code === 'INVALID_KEY'
   );
   assert.equal(calls.length, 1);

@@ -133,13 +133,13 @@ const IMAGE_SCHEMA_STRICT = {
   },
 };
 
-function imageSystemPrompt(scheduleType: EventType): string {
+function scheduleSystemPrompt(scheduleType: EventType): string {
   const kind = scheduleType === 'work' ? 'TRABAJO / TURNOS LABORALES' : 'UNIVERSIDAD / CLASES';
-  return `Eres un experto en leer horarios (OCR) de universidades y de trabajos. Examina la imagen con cuidado: puede ser una tabla, una captura de pantalla del portal estudiantil, una foto de una hoja impresa o escrita a mano.
+  return `Eres un experto en leer horarios de universidades y de trabajos. Recibirás una imagen (tabla, captura de pantalla del portal, foto de una hoja impresa o escrita a mano), un texto con el horario, o ambos.
 
 El horario es principalmente de: ${kind}.
 
-Procedimiento (síguelo en orden, sin saltarte nada):
+Procedimiento con imagen (síguelo en orden, sin saltarte nada):
 A. Identifica las columnas de días (lunes a domingo) y el rango de horas de la cuadrícula.
 B. Recorre CADA columna de arriba hacia abajo y anota TODOS los bloques asignados que veas en ella; un día puede tener varios bloques seguidos.
 C. Antes de responder, revisa columna por columna que no falte ningún bloque asignado.
@@ -156,7 +156,8 @@ Reglas:
 9. "title" = nombre de la materia, clase o turno SIN la hora. Si el bloque tiene un código principal (por ejemplo "M4L14") y debajo un código de grupo (por ejemplo "COL13241_LU-20"), usa el principal como "title" y el de grupo en "notes".
 10. "location" = aula, salón, edificio, sede o sucursal; "teacher" = docente o supervisor; "notes" = grupo, NRC, código, modalidad u otro dato útil. Usa null si no aparece.
 11. Escribe los nombres de materias completos y limpios (corrige mayúsculas raras, conserva tildes). Respeta los códigos tal cual (M4L14, PRM_COL14394_MA-18…).
-12. Si la imagen no es un horario o es ilegible, devuelve "items": [] y explica el problema en "warning" en español.
+12. Si el usuario da indicaciones, tienen PRIORIDAD sobre estas reglas.
+13. "warning" es un mensaje corto en español para el usuario: qué corregiste, diferencias entre la imagen y el texto, bloques dudosos, o por qué no hay resultados. Usa null si no hay nada importante que decir.
 
 Devuelve únicamente JSON: {"items": [{"title": "...", "dayOfWeek": "lunes", "startTime": "07:00", "endTime": "09:00", "location": null, "teacher": null, "notes": null}], "warning": null}`;
 }
@@ -169,7 +170,7 @@ export function isAvailabilityBlock(title: string): boolean {
   const clean = title
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .replace(/\d{1,2}\s*[:.h]\s*\d{2}/g, ' ') // horas escritas dentro del título
     .replace(/[^a-z ]/g, ' ')
     .replace(/\s+/g, ' ')
@@ -177,71 +178,128 @@ export function isAvailabilityBlock(title: string): boolean {
   return /^(no )?(disponible|disponibles|disponibilidad|available|availability|libre|libres|free|open|abierto|sin asignar|unassigned|horario libre|tiempo libre)$/.test(clean);
 }
 
-export interface ImageExtractionResult {
+/** Lo que el usuario entrega al escáner: imagen, texto pegado, indicaciones y/o una corrección */
+export interface ScheduleSource {
+  image?: { base64: string; mimeType: string };
+  /** Horario escrito o pegado por el usuario (se usa solo o para confirmar la imagen) */
+  text?: string;
+  /** Indicaciones, por ejemplo "las clases son los cuadros azules" */
+  instructions?: string;
+  /** Lista que se extrajo antes, cuando el usuario pide una corrección */
+  previous?: ScheduleEvent[];
+  correction?: string;
+}
+
+export interface ScheduleExtractionResult {
   events: ScheduleEvent[];
   provider: AiProvider;
   model: string;
+  /** Avisos generados por la app (respaldo usado, bloques ignorados…) */
   warnings: string[];
+  /** Mensaje de la IA para el usuario (qué corrigió, diferencias, dudas) */
+  note: string | null;
   /** Diagnóstico: cuántos bloques devolvió la IA y una muestra de los que no se pudieron usar */
   returned: number;
   discardedSample: unknown[];
 }
 
-export async function extractScheduleFromImage(params: {
-  imageBase64: string;
-  mimeType: string;
+function describeForPrompt(events: ScheduleEvent[]): string {
+  return events
+    .map((e) => `- ${e.dayOfWeek} ${e.startTime}-${e.endTime} | ${e.title}${e.location ? ` | lugar: ${e.location}` : ''}${e.teacher ? ` | docente: ${e.teacher}` : ''}${e.notes ? ` | notas: ${e.notes}` : ''}`)
+    .join('\n');
+}
+
+/** Mensaje del usuario para la IA a partir de las fuentes disponibles */
+function buildScheduleRequest(source: ScheduleSource, scheduleType: EventType): string {
+  const kind = scheduleType === 'work' ? 'turnos o clases asignadas de trabajo' : 'clases';
+  const sections = [
+    `Extrae TODOS los bloques de ${kind} ${source.image ? 'de esta imagen' : 'del texto'}, revisando cada día de la semana, y devuelve el JSON.`,
+  ];
+
+  if (source.text) {
+    sections.push(
+      source.image
+        ? `El usuario también escribió su horario en texto. Úsalo para confirmar y completar lo que ves en la imagen; si algo aparece en uno y no en el otro, inclúyelo igual y menciónalo en "warning":\n"""\n${source.text}\n"""`
+        : `Horario escrito por el usuario:\n"""\n${source.text}\n"""`
+    );
+  }
+  if (source.instructions) {
+    sections.push(`Indicaciones del usuario (tienen PRIORIDAD sobre las reglas generales):\n"""\n${source.instructions}\n"""`);
+  }
+  if (source.correction) {
+    sections.push(
+      `Esta es la lista que se extrajo antes (${source.previous?.length || 0} bloques):\n${describeForPrompt(source.previous || []) || '(vacía)'}\n\n` +
+        `El usuario pide esta corrección:\n"""\n${source.correction}\n"""\n` +
+        `Aplica la corrección${source.image ? ' revisando de nuevo la imagen' : ''} y devuelve la lista COMPLETA ya corregida (incluye también los bloques que no cambian). En "warning" resume en una frase qué cambiaste.`
+    );
+  }
+  return sections.join('\n\n');
+}
+
+export async function extractSchedule(params: {
+  source: ScheduleSource;
   scheduleType: EventType;
   keys: AiKeys;
-}): Promise<ImageExtractionResult> {
-  const { imageBase64, mimeType, scheduleType, keys } = params;
-  const deadline = Date.now() + 55_000;
-  const system = imageSystemPrompt(scheduleType);
-  const instruction = `Extrae TODOS los bloques de ${scheduleType === 'work' ? 'turnos o clases asignadas de trabajo' : 'clases'} de esta imagen, revisando cada día de la semana, y devuelve el JSON.`;
+}): Promise<ScheduleExtractionResult> {
+  const { source, scheduleType, keys } = params;
+  const hasImage = Boolean(source.image);
+  // Leer imágenes con calma: la función permite hasta 120 s (plan gratuito de Vercel con Fluid compute)
+  const deadline = Date.now() + (hasImage ? 110_000 : 50_000);
+  const system = scheduleSystemPrompt(scheduleType);
+  const request = buildScheduleRequest(source, scheduleType);
 
-  const attempts: ProviderAttempt[] = [];
-  if (keys.gemini) {
-    attempts.push({
-      provider: 'gemini',
-      run: () => geminiGenerateJson({
-        apiKey: keys.gemini!,
-        systemPrompt: system,
-        // Imagen primero y luego la instrucción, como recomienda Google
-        parts: [{ inlineData: { mimeType, data: imageBase64 } }, { text: instruction }],
-        responseSchema: IMAGE_SCHEMA_GEMINI,
-        highResolutionImages: true,
-        // Límite por modelo: si uno está lento o saturado se pasa al siguiente sin agotar el plazo
-        perCallTimeoutMs: 30_000,
-        // Si Groq también está configurado, dejar tiempo para usarlo como respaldo
-        deadline: keys.groq ? deadline - 20_000 : deadline,
-        // Incluye los Flash-Lite, que suelen estar libres cuando los Flash están saturados (los 503 responden en ~2 s)
-        maxModels: 9,
-      }),
-    });
-  }
-  if (keys.groq) {
-    attempts.push({
-      provider: 'groq',
-      run: () => groqGenerateJson({
-        apiKey: keys.groq!,
-        vision: true,
-        messages: [
-          { role: 'system', content: system },
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text: instruction },
-              { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imageBase64}` } },
-            ],
-          },
-        ],
-        jsonSchema: { name: 'horario', schema: IMAGE_SCHEMA_STRICT },
-        deadline,
-      }),
-    });
-  }
+  const geminiAttempt: ProviderAttempt | null = keys.gemini
+    ? {
+        provider: 'gemini',
+        run: () => geminiGenerateJson({
+          apiKey: keys.gemini!,
+          systemPrompt: system,
+          // Imagen primero y luego la instrucción, como recomienda Google
+          parts: source.image ? [{ inlineData: { mimeType: source.image.mimeType, data: source.image.base64 } }, { text: request }] : [{ text: request }],
+          responseSchema: IMAGE_SCHEMA_GEMINI,
+          highResolutionImages: hasImage,
+          fastThinking: !hasImage,
+          // Límite por modelo: si uno está lento o saturado se pasa al siguiente sin agotar el plazo
+          perCallTimeoutMs: hasImage ? 55_000 : 25_000,
+          // Si Groq también está configurado, dejar tiempo para usarlo como respaldo
+          deadline: keys.groq && hasImage ? deadline - 30_000 : deadline,
+          // Incluye los Flash-Lite, que suelen estar libres cuando los Flash están saturados (los 503/429 responden en ~2 s)
+          maxModels: 9,
+        }),
+      }
+    : null;
 
+  const groqAttempt: ProviderAttempt | null = keys.groq
+    ? {
+        provider: 'groq',
+        run: () => groqGenerateJson({
+          apiKey: keys.groq!,
+          vision: hasImage,
+          messages: [
+            { role: 'system', content: system },
+            {
+              role: 'user',
+              content: source.image
+                ? [
+                    { type: 'text', text: request },
+                    { type: 'image_url', image_url: { url: `data:${source.image.mimeType};base64,${source.image.base64}` } },
+                  ]
+                : request,
+            },
+          ],
+          jsonSchema: { name: 'horario', schema: IMAGE_SCHEMA_STRICT },
+          deadline,
+        }),
+      }
+    : null;
+
+  // Con imagen, Gemini lee mejor; solo con texto, Groq es más rápido y tiene más cuota
+  const attempts = (hasImage ? [geminiAttempt, groqAttempt] : [groqAttempt, geminiAttempt]).filter((a): a is ProviderAttempt => Boolean(a));
   const result = await runWithFallback(attempts);
   const rawItems: unknown[] = Array.isArray(result.data?.items) ? result.data.items : Array.isArray(result.data) ? result.data : [];
+
+  // Si el usuario habla de los bloques "Disponible", respetar su indicación en vez del filtro automático
+  const userMentionsAvailability = /disponib|availab/i.test(`${source.instructions || ''} ${source.correction || ''}`);
 
   const events: ScheduleEvent[] = [];
   const discarded: unknown[] = [];
@@ -252,7 +310,7 @@ export async function extractScheduleFromImage(params: {
       discarded.push(item);
       continue;
     }
-    if (isAvailabilityBlock(ev.title)) {
+    if (!userMentionsAvailability && isAvailabilityBlock(ev.title)) {
       ignoredAvailability++;
       continue;
     }
@@ -266,15 +324,14 @@ export async function extractScheduleFromImage(params: {
   if (ignoredAvailability > 0) {
     warnings.push(`Se ignoraron ${ignoredAvailability} bloques de "Disponible": marcan tu disponibilidad, no son clases ni turnos.`);
   }
-  if (typeof result.data?.warning === 'string' && result.data.warning.trim() && events.length === 0) {
-    warnings.push(result.data.warning.trim());
-  }
+  const note = typeof result.data?.warning === 'string' && result.data.warning.trim() ? result.data.warning.trim() : null;
 
   return {
     events,
     provider: result.provider,
     model: result.model,
     warnings,
+    note,
     returned: rawItems.length,
     discardedSample: discarded.slice(0, 3),
   };
