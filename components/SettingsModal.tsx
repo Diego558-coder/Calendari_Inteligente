@@ -20,7 +20,8 @@ import {
   PlugZap,
   ScanLine,
 } from 'lucide-react';
-import { ScheduleEvent } from '@/types/schedule';
+import { EventType, ScheduleEvent } from '@/types/schedule';
+import { EVENT_TYPES, EVENT_TYPE_STYLES } from '@/lib/event-styles';
 import { TIMEZONES } from '@/lib/timezone';
 import { sanitizeEvents } from '@/lib/schedule-utils';
 import type { AppSettings } from '@/hooks/useAppSettings';
@@ -33,6 +34,7 @@ interface SettingsModalProps {
   serverKeys: { gemini: boolean; groq: boolean };
   onLoadDemoData: () => void;
   onClearAllData: () => void;
+  onClearType: (type: EventType) => void;
   events: ScheduleEvent[];
   onImportEvents: (events: ScheduleEvent[]) => void;
 }
@@ -81,6 +83,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   serverKeys,
   onLoadDemoData,
   onClearAllData,
+  onClearType,
   events,
   onImportEvents,
 }) => {
@@ -366,6 +369,30 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           {/* Borrar todo */}
           <section className="space-y-2">
             <h3 className="text-xs font-semibold text-red-400 uppercase tracking-wider">Zona de peligro</h3>
+            <p className="text-xs text-slate-400">Borrar solo un tipo de actividad (útil si un escaneo quedó mal):</p>
+            <div className="flex flex-wrap gap-2">
+              {EVENT_TYPES.map((type) => {
+                const count = events.filter((e) => e.type === type).length;
+                const style = EVENT_TYPE_STYLES[type];
+                return (
+                  <button
+                    key={type}
+                    type="button"
+                    disabled={count === 0}
+                    onClick={() => {
+                      if (confirm(`¿Borrar tus ${count} actividades de ${style.label}?`)) {
+                        onClearType(type);
+                        onClose();
+                      }
+                    }}
+                    className="flex items-center gap-1.5 bg-slate-800 hover:bg-red-500/15 disabled:opacity-40 disabled:hover:bg-slate-800 text-slate-300 border border-slate-700 px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors"
+                  >
+                    <span className={`w-2 h-2 rounded-full ${style.dot}`} />
+                    {style.label} ({count})
+                  </button>
+                );
+              })}
+            </div>
             <button
               type="button"
               onClick={() => {

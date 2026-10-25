@@ -135,7 +135,30 @@ async function main() {
   assert.ok(req.generationConfig.responseSchema);
   console.log('✓ foto: Gemini directo (ignora partes de "pensamiento")');
 
-  // 6. Clave inválida de Gemini: se detiene enseguida (no prueba 5 modelos)
+  // 6. Horario de trabajo tipo plataforma: bloques verdes "Disponible" + clases asignadas en azul
+  calls.length = 0;
+  handler = (url) => {
+    if (url.includes('/models?')) return { status: 200, body: { models: [{ name: 'models/gemini-3.6-flash', supportedGenerationMethods: ['generateContent'] }] } };
+    const items = [
+      { title: 'Disponible', dayOfWeek: 'lunes', startTime: '06:00', endTime: '20:00' },
+      { title: 'M4L14', dayOfWeek: 'lunes', startTime: '20:00', endTime: '21:30', notes: 'COL13241_LU-20' },
+      { title: '05:00-18:00 Disponible', dayOfWeek: 'martes', startTime: '05:00', endTime: '18:00' },
+      { title: 'M1L3', dayOfWeek: 'martes', startTime: '18:00', endTime: '19:00', notes: 'PRM_COL14394_MA-18' },
+      { title: 'DISPONIBLE', dayOfWeek: 'miercoles', startTime: '05:00', endTime: '18:00' },
+    ];
+    return { status: 200, body: { candidates: [{ content: { parts: [{ text: JSON.stringify({ items, warning: null }) }] } }] } };
+  };
+  const work = await extractScheduleFromImage({ imageBase64: 'DDDD', mimeType: 'image/jpeg', scheduleType: 'work', keys: { gemini: 'AIzaSy' + 'e'.repeat(33) } });
+  assert.deepEqual(work.events.map((e) => [e.title, e.dayOfWeek, e.startTime, e.endTime, e.notes]), [
+    ['M4L14', 'lunes', '20:00', '21:30', 'COL13241_LU-20'],
+    ['M1L3', 'martes', '18:00', '19:00', 'PRM_COL14394_MA-18'],
+  ]);
+  assert.match(work.warnings.join(' '), /ignoraron 3 bloques de "Disponible"/);
+  const prompt = calls.find((c) => c.url.includes(':generateContent'))!.body.systemInstruction.parts[0].text;
+  assert.match(prompt, /DISPONIBILIDAD NO son actividades/);
+  console.log('✓ foto: bloques "Disponible" descartados, solo quedan las clases asignadas');
+
+  // 7. Clave inválida de Gemini: se detiene enseguida (no prueba 5 modelos)
   calls.length = 0;
   handler = () => ({ status: 400, body: { error: { message: 'API key not valid. Please pass a valid API key.', details: [{ reason: 'API_KEY_INVALID' }] } } });
   await assert.rejects(

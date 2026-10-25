@@ -25,7 +25,10 @@ import { eventStyle } from '@/lib/event-styles';
 interface PhotoUploaderProps {
   isOpen: boolean;
   onClose: () => void;
-  onEventsExtracted: (newEvents: ScheduleEvent[]) => void;
+  /** `replaceType`: si se indica, se reemplazan las actividades existentes de ese tipo */
+  onEventsExtracted: (newEvents: ScheduleEvent[], replaceType: EventType | null) => void;
+  /** Cuántas actividades de cada tipo hay ya guardadas */
+  existingCounts: Record<EventType, number>;
   geminiKey?: string;
   groqKey?: string;
   onOpenSettings: () => void;
@@ -37,6 +40,7 @@ export const PhotoUploader: React.FC<PhotoUploaderProps> = ({
   isOpen,
   onClose,
   onEventsExtracted,
+  existingCounts,
   geminiKey,
   groqKey,
   onOpenSettings,
@@ -51,6 +55,7 @@ export const PhotoUploader: React.FC<PhotoUploaderProps> = ({
   const [extractedEvents, setExtractedEvents] = useState<ScheduleEvent[] | null>(null);
   const [readBy, setReadBy] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
+  const [replaceExisting, setReplaceExisting] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -189,7 +194,7 @@ export const PhotoUploader: React.FC<PhotoUploaderProps> = ({
 
   const handleConfirmAndSave = () => {
     if (extractedEvents && extractedEvents.length > 0) {
-      onEventsExtracted(extractedEvents);
+      onEventsExtracted(extractedEvents, replaceExisting && existingCounts[scheduleType] > 0 ? scheduleType : null);
       handleReset();
       onClose();
     }
@@ -203,6 +208,7 @@ export const PhotoUploader: React.FC<PhotoUploaderProps> = ({
     setErrorCode(null);
     setWarnings([]);
     setReadBy(null);
+    setReplaceExisting(false);
     setIsAnalyzing(false);
   };
 
@@ -410,6 +416,22 @@ export const PhotoUploader: React.FC<PhotoUploaderProps> = ({
                 <span className="text-xs text-slate-400">Revisa o elimina antes de guardar</span>
               </div>
               {readBy && <p className="text-[11px] text-slate-500">Leído con {readBy}</p>}
+              {existingCounts[scheduleType] > 0 && (
+                <label className="flex items-start gap-2.5 p-3 rounded-xl bg-slate-950/60 border border-slate-700 text-xs text-slate-200 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={replaceExisting}
+                    onChange={(e) => setReplaceExisting(e.target.checked)}
+                    className="mt-0.5 rounded bg-slate-800 border-slate-600 text-indigo-500 focus:ring-indigo-500"
+                  />
+                  <span>
+                    <strong>Reemplazar mis {existingCounts[scheduleType]} actividades de {scheduleType === 'work' ? 'Trabajo' : 'Universidad'} actuales</strong>
+                    <span className="block text-slate-400 mt-0.5">
+                      Márcalo si estás volviendo a escanear el mismo horario (por ejemplo, para corregir uno que quedó mal). Si lo dejas sin marcar, se agregan a las que ya tienes.
+                    </span>
+                  </span>
+                </label>
+              )}
               {warnings.map((warning) => (
                 <p key={warning} className="text-[11px] text-amber-300/90 bg-amber-500/10 border border-amber-500/20 rounded-lg px-2.5 py-1.5">{warning}</p>
               ))}

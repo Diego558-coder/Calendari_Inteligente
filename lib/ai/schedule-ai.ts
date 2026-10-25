@@ -139,17 +139,36 @@ function imageSystemPrompt(scheduleType: EventType): string {
 El horario es principalmente de: ${kind}.
 
 Reglas:
-1. Extrae CADA bloque de horario. Si una materia o turno ocurre varios días, crea un elemento por cada día.
-2. En tablas donde las filas son horas y las columnas días, un bloque que ocupa varias filas seguidas es UNA sola actividad desde la primera hora hasta el final de la última.
-3. Días válidos (minúsculas y sin tilde): lunes, martes, miercoles, jueves, viernes, sabado, domingo. Las abreviaturas L, M, X/Mi, J, V, S, D significan lunes a domingo.
-4. Horas SIEMPRE en 24h "HH:mm": "8am" → "08:00", "2pm" → "14:00", "7:00 a 8:30" → inicio "07:00" y fin "08:30". Turnos escritos como "6-2" significan 06:00 a 14:00.
-5. Si no aparece la hora de fin, estima la duración típica del bloque (normalmente 1 o 2 horas).
-6. Ignora recesos, almuerzos y días marcados como "libre" o "descanso"; no son actividades.
-7. "location" = aula, salón, edificio, sede o sucursal; "teacher" = docente o supervisor; "notes" = grupo, NRC, modalidad u otro dato útil. Usa null si no aparece.
-8. Escribe los nombres de materias completos y limpios (corrige mayúsculas raras, conserva tildes).
-9. Si la imagen no es un horario o es ilegible, devuelve "items": [] y explica el problema en "warning" en español.
+1. Extrae CADA bloque con una actividad asignada (materia, clase, grupo, turno). Si una materia o turno ocurre varios días, crea un elemento por cada día.
+2. MUY IMPORTANTE: los bloques de DISPONIBILIDAD NO son actividades. Ignora por completo los bloques cuyo texto sea "Disponible", "Disponibilidad", "Available", "Libre", "Free", "Abierto", "Sin asignar" o similar, aunque ocupen casi todo el día. En plataformas de trabajo suelen ser bloques de un color (por ejemplo verdes) y las clases o turnos asignados son de otro color (por ejemplo azules): extrae SOLO los asignados.
+3. Si el bloque trae su hora escrita (por ejemplo "20:00-21:30"), usa EXACTAMENTE esa hora. Solo estima por la posición en la cuadrícula cuando el bloque no tiene hora escrita.
+4. En tablas donde las filas son horas y las columnas días, un bloque que ocupa varias filas seguidas es UNA sola actividad desde la primera hora hasta el final de la última. Si las columnas muestran fechas (02.11.2026), usa solo el día de la semana del encabezado.
+5. Días válidos (minúsculas y sin tilde): lunes, martes, miercoles, jueves, viernes, sabado, domingo. Las abreviaturas L, M, X/Mi, J, V, S, D significan lunes a domingo.
+6. Horas SIEMPRE en 24h "HH:mm": "8am" → "08:00", "2pm" → "14:00", "7:00 a 8:30" → inicio "07:00" y fin "08:30". Turnos escritos como "6-2" significan 06:00 a 14:00.
+7. Si no aparece la hora de fin, estima la duración típica del bloque (normalmente 1 o 2 horas).
+8. Ignora recesos, almuerzos y días marcados como "libre" o "descanso"; no son actividades.
+9. "title" = nombre de la materia, clase o turno SIN la hora. Si el bloque tiene un código principal (por ejemplo "M4L14") y debajo un código de grupo (por ejemplo "COL13241_LU-20"), usa el principal como "title" y el de grupo en "notes".
+10. "location" = aula, salón, edificio, sede o sucursal; "teacher" = docente o supervisor; "notes" = grupo, NRC, código, modalidad u otro dato útil. Usa null si no aparece.
+11. Escribe los nombres de materias completos y limpios (corrige mayúsculas raras, conserva tildes). Respeta los códigos tal cual (M4L14, PRM_COL14394_MA-18…).
+12. Si la imagen no es un horario o es ilegible, devuelve "items": [] y explica el problema en "warning" en español.
 
 Devuelve únicamente JSON: {"items": [{"title": "...", "dayOfWeek": "lunes", "startTime": "07:00", "endTime": "09:00", "location": null, "teacher": null, "notes": null}], "warning": null}`;
+}
+
+/**
+ * Bloques de disponibilidad ("Disponible", "Available", "Libre"…) que aparecen en las plataformas de
+ * turnos: indican cuándo PUEDES trabajar, no cuándo trabajas. Se descartan aunque la IA los devuelva.
+ */
+export function isAvailabilityBlock(title: string): boolean {
+  const clean = title
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/\d{1,2}\s*[:.h]\s*\d{2}/g, ' ') // horas escritas dentro del título
+    .replace(/[^a-z ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return /^(no )?(disponible|disponibles|disponibilidad|available|availability|libre|libres|free|open|abierto|sin asignar|unassigned|horario libre|tiempo libre)$/.test(clean);
 }
 
 export interface ImageExtractionResult {
@@ -211,13 +230,24 @@ export async function extractScheduleFromImage(params: {
   const rawItems: unknown[] = Array.isArray(result.data?.items) ? result.data.items : Array.isArray(result.data) ? result.data : [];
 
   const events: ScheduleEvent[] = [];
+  let ignoredAvailability = 0;
   for (const item of rawItems) {
     const ev = sanitizeEvent({ ...(item as object), id: undefined, type: scheduleType }, scheduleType);
-    if (ev && !events.some((existing) => isSameActivity(existing, ev))) events.push(ev);
+    if (!ev) continue;
+    if (isAvailabilityBlock(ev.title)) {
+      ignoredAvailability++;
+      continue;
+    }
+    if (!events.some((existing) => isSameActivity(existing, ev))) events.push(ev);
   }
 
   const warnings = [...result.warnings];
-  if (typeof result.data?.warning === 'string' && result.data.warning.trim()) warnings.push(result.data.warning.trim());
+  if (ignoredAvailability > 0) {
+    warnings.push(`Se ignoraron ${ignoredAvailability} bloques de "Disponible": marcan tu disponibilidad, no son clases ni turnos.`);
+  }
+  if (typeof result.data?.warning === 'string' && result.data.warning.trim() && events.length === 0) {
+    warnings.push(result.data.warning.trim());
+  }
 
   return { events, provider: result.provider, model: result.model, warnings };
 }

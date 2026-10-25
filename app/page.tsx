@@ -49,6 +49,8 @@ interface Toast {
   id: number;
   type: 'ok' | 'error';
   text: string;
+  /** Estado anterior para el botón "Deshacer" */
+  undo?: ScheduleEvent[];
 }
 
 export default function HomePage() {
@@ -67,10 +69,10 @@ export default function HomePage() {
   const [linking, setLinking] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
 
-  const showToast = useCallback((type: Toast['type'], text: string) => {
+  const showToast = useCallback((type: Toast['type'], text: string, undo?: ScheduleEvent[]) => {
     const id = Date.now();
-    setToast({ id, type, text });
-    setTimeout(() => setToast((current) => (current?.id === id ? null : current)), 4500);
+    setToast({ id, type, text, undo });
+    setTimeout(() => setToast((current) => (current?.id === id ? null : current)), undo ? 9000 : 4500);
   }, []);
 
   // Cambios hechos en otro dispositivo vinculado
@@ -159,17 +161,33 @@ export default function HomePage() {
   const stats = useMemo(() => calculateStats(events, freeSlots, conflicts), [events, freeSlots, conflicts]);
 
   // Manejadores de eventos
-  const handleEventsExtracted = useCallback((extractedList: ScheduleEvent[]) => {
+  const handleEventsExtracted = useCallback((extractedList: ScheduleEvent[], replaceType: ScheduleEvent['type'] | null) => {
     let added = 0;
+    let removed = 0;
+    const before = events;
     modifyEvents((current) => {
-      const fresh = extractedList.filter((ev) => !current.some((existing) => isSameActivity(existing, ev)));
+      const kept = replaceType ? current.filter((ev) => ev.type !== replaceType) : current;
+      removed = current.length - kept.length;
+      const fresh = extractedList.filter((ev) => !kept.some((existing) => isSameActivity(existing, ev)));
       added = fresh.length;
-      return [...current, ...fresh];
+      return [...kept, ...fresh];
     });
     const skipped = extractedList.length - added;
-    showToast('ok', `Se agregaron ${added} actividades${skipped > 0 ? ` (${skipped} ya estaban y se omitieron)` : ''}.`);
+    showToast(
+      'ok',
+      replaceType
+        ? `Listo: se reemplazaron ${removed} actividades por las ${added} nuevas.`
+        : `Se agregaron ${added} actividades${skipped > 0 ? ` (${skipped} ya estaban y se omitieron)` : ''}.`,
+      before
+    );
     confetti({ particleCount: 100, spread: 80, origin: { y: 0.5 } });
-  }, [modifyEvents, showToast]);
+  }, [events, modifyEvents, showToast]);
+
+  const existingCounts = useMemo(() => ({
+    university: events.filter((e) => e.type === 'university').length,
+    work: events.filter((e) => e.type === 'work').length,
+    personal: events.filter((e) => e.type === 'personal').length,
+  }), [events]);
 
   const handleSaveEvent = useCallback((savedEv: ScheduleEvent) => {
     modifyEvents((current) =>
@@ -406,6 +424,7 @@ export default function HomePage() {
         isOpen={isUploadOpen}
         onClose={() => setIsUploadOpen(false)}
         onEventsExtracted={handleEventsExtracted}
+        existingCounts={existingCounts}
         geminiKey={settings.geminiKey}
         groqKey={settings.groqKey}
         onOpenSettings={() => {
@@ -439,6 +458,12 @@ export default function HomePage() {
         serverKeys={serverKeys}
         onLoadDemoData={loadDemo}
         onClearAllData={() => updateEvents([])}
+        onClearType={(type) => {
+          const before = events;
+          const count = events.filter((e) => e.type === type).length;
+          updateEvents(events.filter((e) => e.type !== type));
+          showToast('ok', `Se borraron ${count} actividades.`, before);
+        }}
         events={events}
         onImportEvents={(imported) => updateEvents(imported)}
       />
@@ -491,6 +516,17 @@ export default function HomePage() {
           <div className={`flex items-start gap-2 rounded-xl px-4 py-3 text-sm shadow-2xl border ${toast.type === 'ok' ? 'bg-emerald-950 border-emerald-500/40 text-emerald-100' : 'bg-red-950 border-red-500/40 text-red-100'}`}>
             {toast.type === 'ok' ? <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" /> : <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />}
             <span className="flex-1">{toast.text}</span>
+            {toast.undo && (
+              <button
+                onClick={() => {
+                  updateEvents(toast.undo!);
+                  setToast(null);
+                }}
+                className="font-semibold underline underline-offset-2 shrink-0"
+              >
+                Deshacer
+              </button>
+            )}
             <button onClick={() => setToast(null)} aria-label="Cerrar aviso" className="opacity-70 hover:opacity-100">
               <X className="w-4 h-4" />
             </button>

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { normalizeTime, parseDay, sanitizeEvent, generateICS, detectConflicts, isSameActivity } from '@/lib/schedule-utils';
+import { normalizeTime, parseDay, sanitizeEvent, generateICS, detectConflicts, isSameActivity, layoutOverlaps } from '@/lib/schedule-utils';
+import { isAvailabilityBlock } from '@/lib/ai/schedule-ai';
 import { getZonedNow, addDaysISO } from '@/lib/timezone';
 import { dueReminders, reminderPayload, formatMinutesUntil } from '@/lib/push';
 import { encodeStaticToken, decodeStaticToken, describeCalendarClient } from '@/lib/profile';
@@ -152,6 +153,30 @@ test('conflictos e isSameActivity', () => {
   const b = { ...a, id: '2', title: 'B', startTime: '11:00', endTime: '15:00' };
   assert.equal(detectConflicts([a, b])[0].overlapMinutes, 60);
   assert.ok(isSameActivity(a, { ...b, startTime: '10:00', title: ' a ' }));
+});
+
+test('isAvailabilityBlock reconoce bloques de disponibilidad', () => {
+  for (const title of ['Disponible', 'DISPONIBLE', '05:00-18:00 Disponible', 'Available', 'Libre', 'Sin asignar', 'No disponible', 'disponibilidad']) {
+    assert.ok(isAvailabilityBlock(title), title);
+  }
+  for (const title of ['M4L14', 'Cálculo Diferencial', 'Turno disponible para cubrir', 'Inglés libre conversación']) {
+    assert.ok(!isAvailabilityBlock(title), title);
+  }
+});
+
+test('layoutOverlaps pone lado a lado los eventos que se cruzan', () => {
+  const ev = (id: string, startTime: string, endTime: string): ScheduleEvent => ({ id, title: id, type: 'work', dayOfWeek: 'lunes', startTime, endTime });
+  const lanes = layoutOverlaps([ev('a', '07:00', '09:00'), ev('b', '08:00', '10:00'), ev('c', '09:00', '11:00'), ev('d', '12:00', '13:00')]);
+  // a y b se cruzan; c reutiliza la columna de a (que ya terminó); d va sola
+  assert.deepEqual(lanes.get('a'), { column: 0, columns: 2 });
+  assert.deepEqual(lanes.get('b'), { column: 1, columns: 2 });
+  assert.deepEqual(lanes.get('c'), { column: 0, columns: 2 });
+  assert.deepEqual(lanes.get('d'), { column: 0, columns: 1 });
+  // Un bloque largo (como "Disponible" 06:00-20:00) con tres clases encima
+  const big = layoutOverlaps([ev('x', '06:00', '20:00'), ev('y', '07:00', '09:00'), ev('z', '10:00', '12:00')]);
+  assert.equal(big.get('x')!.columns, 2);
+  assert.equal(big.get('y')!.column, 1);
+  assert.equal(big.get('z')!.column, 1);
 });
 
 console.log(`\n${passed} grupos de pruebas pasaron`);

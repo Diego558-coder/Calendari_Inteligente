@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { DayOfWeek, ScheduleEvent, FreeTimeSlot, ScheduleConflict } from '@/types/schedule';
-import { timeToMinutes } from '@/lib/schedule-utils';
+import { layoutOverlaps, timeToMinutes } from '@/lib/schedule-utils';
 import { EventBlock } from './EventBlock';
 import { FreeSlotBlock } from './FreeSlotBlock';
 import { Plus } from 'lucide-react';
@@ -39,6 +39,9 @@ export const DayColumn: React.FC<DayColumnProps> = ({
   const hasConflict = (eventId: string) => {
     return conflicts.some((c) => c.eventA.id === eventId || c.eventB.id === eventId);
   };
+
+  // Eventos que se cruzan van lado a lado en vez de taparse
+  const lanes = React.useMemo(() => layoutOverlaps(dayEvents), [dayEvents]);
 
   return (
     <div
@@ -94,6 +97,7 @@ export const DayColumn: React.FC<DayColumnProps> = ({
         const height = Math.max(36, duration * PIXELS_PER_MINUTE);
 
         const conflict = hasConflict(ev.id);
+        const lane = lanes.get(ev.id) || { column: 0, columns: 1 };
 
         return (
           <EventBlock
@@ -101,6 +105,8 @@ export const DayColumn: React.FC<DayColumnProps> = ({
             event={ev}
             top={top}
             height={height}
+            column={lane.column}
+            columns={lane.columns}
             hasConflict={conflict}
             onClick={() => onSelectEvent(ev)}
           />

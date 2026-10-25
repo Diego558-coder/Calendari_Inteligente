@@ -9,6 +9,9 @@ interface EventBlockProps {
   event: ScheduleEvent;
   top: number;
   height: number;
+  /** Columna y total de columnas cuando hay eventos superpuestos */
+  column?: number;
+  columns?: number;
   hasConflict: boolean;
   onClick: () => void;
 }
@@ -17,11 +20,15 @@ export const EventBlock: React.FC<EventBlockProps> = ({
   event,
   top,
   height,
+  column = 0,
+  columns = 1,
   hasConflict,
   onClick,
 }) => {
   const style = eventStyle(event.type);
   const Icon = style.icon;
+  const compact = columns > 1;
+  const widthPercent = 100 / columns;
 
   const eventAriaLabel = `${event.title}, ${event.startTime} a ${event.endTime}, ${style.spokenLabel}${event.location ? ` en ${event.location}` : ''}${hasConflict ? ', conflicto detectado' : ''}`;
 
@@ -35,8 +42,10 @@ export const EventBlock: React.FC<EventBlockProps> = ({
       style={{
         top: `${top}px`,
         height: `${height}px`,
+        left: `calc(${column * widthPercent}% + ${column === 0 ? 6 : 2}px)`,
+        width: `calc(${widthPercent}% - ${columns === 1 ? 12 : column === 0 || column === columns - 1 ? 8 : 4}px)`,
       }}
-      className={`absolute inset-x-1.5 rounded-xl p-2 cursor-pointer shadow-md transition-all hover:scale-[1.02] hover:z-20 border z-10 flex flex-col justify-between overflow-hidden focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-slate-900 ${
+      className={`absolute rounded-xl ${compact ? 'p-1.5' : 'p-2'} cursor-pointer shadow-md transition-all hover:scale-[1.02] hover:z-20 border z-10 flex flex-col justify-between overflow-hidden focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-slate-900 ${
         hasConflict
           ? 'bg-red-950/90 border-red-500 text-white ring-2 ring-red-500/50 shadow-red-500/20'
           : style.block
@@ -47,7 +56,7 @@ export const EventBlock: React.FC<EventBlockProps> = ({
         <div className="flex items-center justify-between gap-1">
           <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider opacity-90 truncate">
             <Icon className="w-3 h-3 shrink-0" />
-            {style.label}
+            {!compact && style.label}
           </span>
 
           {hasConflict && (
@@ -67,7 +76,7 @@ export const EventBlock: React.FC<EventBlockProps> = ({
         <span className="font-mono font-medium truncate">
           {event.startTime} - {event.endTime}
         </span>
-        {event.location && (
+        {event.location && !compact && (
           <span className="flex items-center gap-0.5 truncate max-w-[60px]" title={event.location}>
             <MapPin className="w-2.5 h-2.5 shrink-0" />
             {event.location}

@@ -256,6 +256,59 @@ export function detectConflicts(events: ScheduleEvent[]): ScheduleConflict[] {
   return conflicts;
 }
 
+export interface EventLane {
+  /** Columna asignada dentro del grupo de eventos que se cruzan (0 = primera) */
+  column: number;
+  /** Número de columnas del grupo */
+  columns: number;
+}
+
+/**
+ * Reparte en columnas los eventos de un mismo día que se superponen (como Google Calendar),
+ * para que ninguno quede tapado detrás de otro.
+ */
+export function layoutOverlaps(dayEvents: ScheduleEvent[]): Map<string, EventLane> {
+  const lanes = new Map<string, EventLane>();
+  const sorted = [...dayEvents].sort(
+    (a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime) || timeToMinutes(b.endTime) - timeToMinutes(a.endTime)
+  );
+
+  let group: ScheduleEvent[] = [];
+  let columnEnds: number[] = [];
+  let groupEnd = -1;
+
+  const closeGroup = () => {
+    group.forEach((ev) => {
+      const lane = lanes.get(ev.id)!;
+      lanes.set(ev.id, { column: lane.column, columns: columnEnds.length });
+    });
+    group = [];
+    columnEnds = [];
+    groupEnd = -1;
+  };
+
+  for (const ev of sorted) {
+    const start = timeToMinutes(ev.startTime);
+    // Duración mínima visual de 30 min, igual que en la cuadrícula
+    const end = Math.max(timeToMinutes(ev.endTime), start + 30);
+    if (group.length > 0 && start >= groupEnd) closeGroup();
+
+    let column = columnEnds.findIndex((columnEnd) => columnEnd <= start);
+    if (column === -1) {
+      column = columnEnds.length;
+      columnEnds.push(end);
+    } else {
+      columnEnds[column] = end;
+    }
+    lanes.set(ev.id, { column, columns: 1 });
+    group.push(ev);
+    groupEnd = Math.max(groupEnd, end);
+  }
+  if (group.length > 0) closeGroup();
+
+  return lanes;
+}
+
 /**
  * Calcula los huecos y horas libres disponibles en cada día de la semana
  * Por defecto busca huecos de al menos 30 minutos entre 07:00 y 22:00
