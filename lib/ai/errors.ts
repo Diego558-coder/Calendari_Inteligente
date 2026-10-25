@@ -48,6 +48,16 @@ export function friendlyAiMessage(code: AiErrorCode, provider: AiProvider): stri
   }
 }
 
+/** Cuerpo y estado HTTP de la respuesta de error de las rutas de IA (con detalle técnico para diagnosticar) */
+export function aiErrorResponse(err: AiError): { body: Record<string, unknown>; status: number } {
+  const status = err.code === 'QUOTA' ? 429 : err.code === 'INVALID_KEY' || err.code === 'NO_KEY' ? 422 : 502;
+  const detail = err.detail
+    ?.replace(/AIza[0-9A-Za-z_-]{20,}|gsk_[0-9A-Za-z]{20,}/g, '[clave]')
+    .replace(/\s+/g, ' ')
+    .slice(0, 1200);
+  return { body: { success: false, error: err.message, code: err.code, ...(detail ? { detail } : {}) }, status };
+}
+
 export interface ModelFailure {
   model: string;
   code: AiErrorCode;

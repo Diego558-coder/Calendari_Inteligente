@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { ChatHistoryMessage } from '@/types/schedule';
 import { sanitizeEvents } from '@/lib/schedule-utils';
 import { enforceRateLimit } from '@/lib/rate-limit';
-import { AiError } from '@/lib/ai/errors';
+import { AiError, aiErrorResponse } from '@/lib/ai/errors';
 import { NO_KEYS_MESSAGE, resolveKeys, runScheduleChat } from '@/lib/ai/schedule-ai';
 
 export const runtime = 'nodejs';
@@ -49,10 +49,8 @@ export async function POST(req: NextRequest) {
     });
   } catch (error: any) {
     if (error instanceof AiError) {
-      return NextResponse.json(
-        { success: false, error: error.message, code: error.code },
-        { status: error.code === 'QUOTA' ? 429 : error.code === 'INVALID_KEY' || error.code === 'NO_KEY' ? 422 : 502 }
-      );
+      const { body, status } = aiErrorResponse(error);
+      return NextResponse.json(body, { status });
     }
     console.error('Error en /api/chat-schedule:', error);
     return NextResponse.json({ success: false, error: 'Error interno del asistente. Intenta de nuevo.' }, { status: 500 });

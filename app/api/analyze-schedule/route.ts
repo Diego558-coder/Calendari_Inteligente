@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { EventType } from '@/types/schedule';
 import { enforceRateLimit } from '@/lib/rate-limit';
-import { AiError } from '@/lib/ai/errors';
+import { AiError, aiErrorResponse } from '@/lib/ai/errors';
 import { extractScheduleFromImage, NO_KEYS_MESSAGE, resolveKeys } from '@/lib/ai/schedule-ai';
 
 export const runtime = 'nodejs';
@@ -76,10 +76,8 @@ export async function POST(req: NextRequest) {
     });
   } catch (err: any) {
     if (err instanceof AiError) {
-      return NextResponse.json(
-        { success: false, error: err.message, code: err.code },
-        { status: err.code === 'QUOTA' ? 429 : err.code === 'INVALID_KEY' || err.code === 'NO_KEY' ? 422 : 502 }
-      );
+      const { body, status } = aiErrorResponse(err);
+      return NextResponse.json(body, { status });
     }
     console.error('Error en /api/analyze-schedule:', err);
     return NextResponse.json(

@@ -52,6 +52,7 @@ export const PhotoUploader: React.FC<PhotoUploaderProps> = ({
   const [analysisStatus, setAnalysisStatus] = useState<string>('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
+  const [errorDetail, setErrorDetail] = useState<string | null>(null);
   const [extractedEvents, setExtractedEvents] = useState<ScheduleEvent[] | null>(null);
   const [readBy, setReadBy] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
@@ -133,6 +134,7 @@ export const PhotoUploader: React.FC<PhotoUploaderProps> = ({
     setIsAnalyzing(true);
     setErrorMsg(null);
     setErrorCode(null);
+    setErrorDetail(null);
     setWarnings([]);
     setAnalysisStatus('Preparando la imagen...');
 
@@ -167,6 +169,7 @@ export const PhotoUploader: React.FC<PhotoUploaderProps> = ({
 
       if (!response.ok || !data.success) {
         setErrorCode(data.code || null);
+        setErrorDetail(typeof data.detail === 'string' ? data.detail : null);
         throw new Error(data.error || 'No se pudieron extraer los horarios de la imagen.');
       }
 
@@ -206,6 +209,7 @@ export const PhotoUploader: React.FC<PhotoUploaderProps> = ({
     setExtractedEvents(null);
     setErrorMsg(null);
     setErrorCode(null);
+    setErrorDetail(null);
     setWarnings([]);
     setReadBy(null);
     setReplaceExisting(false);
@@ -387,6 +391,12 @@ export const PhotoUploader: React.FC<PhotoUploaderProps> = ({
                     <SettingsIcon className="w-3.5 h-3.5" />
                     Abrir Ajustes de IA
                   </button>
+                )}
+                {errorDetail && (
+                  <details className="mt-2 text-[11px] text-slate-400">
+                    <summary className="cursor-pointer select-none">Detalles técnicos</summary>
+                    <p className="mt-1 break-words font-mono">{errorDetail}</p>
+                  </details>
                 )}
               </div>
             </div>

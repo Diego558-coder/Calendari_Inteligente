@@ -69,9 +69,10 @@ async function runWithFallback(attempts: ProviderAttempt[]): Promise<ProviderRes
     }
   }
 
-  // Todos fallaron: devolver un mensaje que combine los motivos
+  // Todos fallaron: devolver un mensaje que combine los motivos (y el detalle técnico de cada uno)
   const message = errors.map((e) => e.message).join(' ');
-  throw new AiError(errors[errors.length - 1].code, errors[errors.length - 1].provider, message);
+  const detail = errors.map((e) => `[${e.provider}] ${e.detail || e.code}`).join(' || ');
+  throw new AiError(errors[errors.length - 1].code, errors[errors.length - 1].provider, message, detail);
 }
 
 const DAY_KEYS = DAYS_OF_WEEK.map((d) => d.key);
