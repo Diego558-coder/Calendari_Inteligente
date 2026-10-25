@@ -1,12 +1,12 @@
 export type EventType = 'university' | 'work' | 'personal';
 
-export type DayOfWeek = 
-  | 'lunes' 
-  | 'martes' 
-  | 'miercoles' 
-  | 'jueves' 
-  | 'viernes' 
-  | 'sabado' 
+export type DayOfWeek =
+  | 'lunes'
+  | 'martes'
+  | 'miercoles'
+  | 'jueves'
+  | 'viernes'
+  | 'sabado'
   | 'domingo';
 
 export interface ScheduleEvent {
@@ -48,3 +48,20 @@ export interface ScheduleStats {
   conflictsCount: number;
 }
 
+/**
+ * Acción que el asistente de agenda pide aplicar sobre el calendario.
+ * El servidor ya resuelve `eventId` contra los eventos reales antes de enviarla al cliente.
+ */
+export interface ChatAction {
+  type: 'add' | 'update' | 'delete';
+  eventId?: string;
+  event?: Partial<Omit<ScheduleEvent, 'id'>>;
+}
+
+export interface ChatHistoryMessage {
+  role: 'user' | 'assistant';
+  text: string;
+}
+
+/** Proveedores de IA gratuitos soportados */
+export type AiProvider = 'gemini' | 'groq';

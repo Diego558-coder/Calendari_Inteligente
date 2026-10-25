@@ -2,8 +2,8 @@
 
 import React from 'react';
 import { ScheduleEvent } from '@/types/schedule';
-import { timeToMinutes } from '@/lib/schedule-utils';
-import { GraduationCap, Briefcase, AlertTriangle, MapPin } from 'lucide-react';
+import { eventStyle } from '@/lib/event-styles';
+import { AlertTriangle, MapPin } from 'lucide-react';
 
 interface EventBlockProps {
   event: ScheduleEvent;
@@ -20,9 +20,10 @@ export const EventBlock: React.FC<EventBlockProps> = ({
   hasConflict,
   onClick,
 }) => {
-  const isUni = event.type === 'university';
+  const style = eventStyle(event.type);
+  const Icon = style.icon;
 
-  const eventAriaLabel = `${event.title}, ${event.startTime} a ${event.endTime}, ${isUni ? 'clase' : 'trabajo'}${event.location ? ` en ${event.location}` : ''}${hasConflict ? ', conflicto detectado' : ''}`;
+  const eventAriaLabel = `${event.title}, ${event.startTime} a ${event.endTime}, ${style.spokenLabel}${event.location ? ` en ${event.location}` : ''}${hasConflict ? ', conflicto detectado' : ''}`;
 
   return (
     <div
@@ -38,21 +39,15 @@ export const EventBlock: React.FC<EventBlockProps> = ({
       className={`absolute inset-x-1.5 rounded-xl p-2 cursor-pointer shadow-md transition-all hover:scale-[1.02] hover:z-20 border z-10 flex flex-col justify-between overflow-hidden focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-slate-900 ${
         hasConflict
           ? 'bg-red-950/90 border-red-500 text-white ring-2 ring-red-500/50 shadow-red-500/20'
-          : isUni
-          ? 'bg-indigo-600/90 hover:bg-indigo-600 border-indigo-400/60 text-white shadow-indigo-600/20'
-          : 'bg-emerald-600/90 hover:bg-emerald-600 border-emerald-400/60 text-white shadow-emerald-600/20'
+          : style.block
       }`}
     >
       {/* Cabecera del bloque */}
       <div>
         <div className="flex items-center justify-between gap-1">
           <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider opacity-90 truncate">
-            {isUni ? (
-              <GraduationCap className="w-3 h-3 shrink-0" />
-            ) : (
-              <Briefcase className="w-3 h-3 shrink-0" />
-            )}
-            {isUni ? 'Universidad' : 'Trabajo'}
+            <Icon className="w-3 h-3 shrink-0" />
+            {style.label}
           </span>
 
           {hasConflict && (

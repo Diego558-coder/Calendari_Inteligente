@@ -1,17 +1,14 @@
 'use client';
 
 import React from 'react';
-import { 
-  Calendar as CalendarIcon, 
-  Clock, 
-  Sparkles, 
-  Bell, 
-  PlusCircle, 
+import {
+  Calendar as CalendarIcon,
+  Clock,
+  Sparkles,
+  Bell,
+  PlusCircle,
   Settings as SettingsIcon,
-  BookOpen,
-  Briefcase
 } from 'lucide-react';
-import { ThemeToggle } from './ThemeToggle';
 
 export type ActiveTab = 'calendar' | 'agenda' | 'free-time' | 'notifications';
 
@@ -21,11 +18,10 @@ interface NavbarProps {
   onOpenUpload: () => void;
   onOpenSettings: () => void;
   stats: {
-    universityCount: number;
-    workCount: number;
     freeHours: number;
-    hasConflicts: boolean;
   };
+  /** Punto de aviso en la pestaña de notificaciones cuando aún no están activadas */
+  notificationsPending?: boolean;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -34,12 +30,13 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenUpload,
   onOpenSettings,
   stats,
+  notificationsPending,
 }) => {
   return (
-    <header className="sticky top-0 z-40 bg-slate-900/90 backdrop-blur-md border-b border-slate-800">
+    <header className="sticky top-0 z-40 bg-slate-900/90 backdrop-blur-md border-b border-slate-800" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
-          
+
           {/* Logo y Nombre */}
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center shadow-lg shadow-indigo-500/30">
@@ -118,14 +115,16 @@ export const Navbar: React.FC<NavbarProps> = ({
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
               }`}
             >
-              <Bell className="w-4 h-4" />
+              <span className="relative">
+                <Bell className="w-4 h-4" />
+                {notificationsPending && <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-400" aria-hidden="true" />}
+              </span>
               Avisos Celular
             </button>
           </nav>
 
           {/* Botones de acción principales */}
           <div className="flex items-center gap-2">
-            <ThemeToggle />
             <button
               onClick={onOpenUpload}
               aria-label="Escanear horario con IA"
@@ -138,7 +137,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             <button
               onClick={onOpenSettings}
-              aria-label="Ajustes y clave API de Gemini"
+              aria-label="Ajustes e inteligencia artificial"
               className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors border border-slate-800"
             >
               <SettingsIcon className="w-5 h-5" />
@@ -201,7 +200,10 @@ export const Navbar: React.FC<NavbarProps> = ({
             activeTab === 'notifications' ? 'text-indigo-400 font-semibold' : 'text-slate-400'
           }`}
         >
-          <Bell className="w-4 h-4" />
+          <span className="relative">
+            <Bell className="w-4 h-4" />
+            {notificationsPending && <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-400" aria-hidden="true" />}
+          </span>
           Avisos
         </button>
       </div>

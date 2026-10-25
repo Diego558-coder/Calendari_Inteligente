@@ -3,10 +3,9 @@
 import React, { useState } from 'react';
 import { DayOfWeek, FreeTimeSlot, ScheduleConflict, ScheduleEvent } from '@/types/schedule';
 import { DAYS_OF_WEEK, timeToMinutes } from '@/lib/schedule-utils';
+import { eventStyle } from '@/lib/event-styles';
 import { 
   Clock, 
-  GraduationCap, 
-  Briefcase, 
   Sparkles, 
   MapPin, 
   User, 
@@ -34,6 +33,7 @@ export const DailyAgendaView: React.FC<DailyAgendaViewProps> = ({
   const todayIdx = (new Date().getDay() + 6) % 7; // 0=Lunes, 6=Domingo
   const defaultDayKey = DAYS_OF_WEEK[todayIdx]?.key || 'lunes';
   const [selectedDay, setSelectedDay] = useState<DayOfWeek>(defaultDayKey);
+  const todayKey = defaultDayKey;
 
   const dayEvents = events
     .filter((e) => e.dayOfWeek === selectedDay)
@@ -79,7 +79,7 @@ export const DailyAgendaView: React.FC<DailyAgendaViewProps> = ({
                     : 'bg-slate-950/60 text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-slate-800/80'
                 }`}
               >
-                <span className="uppercase text-[10px] tracking-wider opacity-80">{day.short}</span>
+                <span className="uppercase text-[10px] tracking-wider opacity-80">{day.key === todayKey ? 'Hoy' : day.short}</span>
                 <span className="text-sm font-semibold capitalize mt-0.5">{day.label}</span>
                 <span
                   className={`mt-1 text-[10px] px-1.5 py-0.2 rounded-full ${
@@ -124,7 +124,7 @@ export const DailyAgendaView: React.FC<DailyAgendaViewProps> = ({
         <div className="bg-red-950/50 border-b border-red-900/60 p-3 px-6 text-xs text-red-300 flex items-center gap-2">
           <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
           <span>
-            <strong>¡Atención hoy!</strong> Hay un choque entre "{dayConflicts[0].eventA.title}" y "{dayConflicts[0].eventB.title}".
+            <strong>¡Atención!</strong> Hay un choque entre "{dayConflicts[0].eventA.title}" y "{dayConflicts[0].eventB.title}".
           </span>
         </div>
       )}
@@ -135,7 +135,7 @@ export const DailyAgendaView: React.FC<DailyAgendaViewProps> = ({
           <div className="py-16 text-center text-slate-500 flex flex-col items-center">
             <Sparkles className="w-10 h-10 text-amber-400/40 mb-3" />
             <p className="text-base font-semibold text-slate-400">Día completamente libre</p>
-            <p className="text-xs text-slate-500 mt-1">No tienes clases ni turnos de trabajo programados para hoy.</p>
+            <p className="text-xs text-slate-500 mt-1">No tienes clases ni turnos de trabajo programados este día.</p>
             <button
               onClick={() => onAddEvent(selectedDay)}
               className="mt-4 px-4 py-2 bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 rounded-xl text-xs font-semibold hover:bg-indigo-600/30"
@@ -171,7 +171,8 @@ export const DailyAgendaView: React.FC<DailyAgendaViewProps> = ({
             }
 
             const ev = item.data;
-            const isUni = ev.type === 'university';
+            const style = eventStyle(ev.type);
+            const Icon = style.icon;
 
             return (
               <div
@@ -180,34 +181,18 @@ export const DailyAgendaView: React.FC<DailyAgendaViewProps> = ({
                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelectEvent(ev); }}}
                 tabIndex={0}
                 role="button"
-                aria-label={`${ev.title}, ${ev.startTime} a ${ev.endTime}, ${isUni ? 'clase' : 'trabajo'}${ev.location ? ` en ${ev.location}` : ''}`}
-                className={`p-4 rounded-xl border cursor-pointer transition-all hover:scale-[1.01] flex items-start justify-between gap-4 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-slate-900 ${
-                  isUni
-                    ? 'bg-indigo-950/30 border-indigo-500/30 hover:border-indigo-400/60'
-                    : 'bg-emerald-950/30 border-emerald-500/30 hover:border-emerald-400/60'
-                }`}
+                aria-label={`${ev.title}, ${ev.startTime} a ${ev.endTime}, ${style.spokenLabel}${ev.location ? ` en ${ev.location}` : ''}`}
+                className={`p-4 rounded-xl border cursor-pointer transition-all hover:scale-[1.01] flex items-start justify-between gap-4 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-slate-900 ${style.card}`}
               >
                 <div className="flex items-start gap-3.5 min-w-0">
-                  <div
-                    className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                      isUni
-                        ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
-                        : 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
-                    }`}
-                  >
-                    {isUni ? <GraduationCap className="w-5 h-5" /> : <Briefcase className="w-5 h-5" />}
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${style.iconBox}`}>
+                    <Icon className="w-5 h-5" />
                   </div>
 
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <span
-                        className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
-                          isUni
-                            ? 'bg-indigo-500/20 text-indigo-300'
-                            : 'bg-emerald-500/20 text-emerald-300'
-                        }`}
-                      >
-                        {isUni ? 'Universidad' : 'Trabajo'}
+                      <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${style.badge}`}>
+                        {style.label}
                       </span>
                       <span className="text-xs text-slate-400 font-mono font-medium flex items-center gap-1">
                         <Clock className="w-3.5 h-3.5" />

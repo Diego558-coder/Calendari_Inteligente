@@ -10,10 +10,15 @@ if (typeof window !== 'undefined') {
   });
 }
 
-const STORAGE_KEY_EVENTS = 'mihorario_events_v1';
-const STORAGE_KEY_APIKEY = 'mihorario_gemini_key_v1';
-const STORAGE_KEY_THEME = 'mihorario_theme_v1';
-const STORAGE_KEY_TIMEZONE = 'mihorario_timezone_v1';
+export const STORAGE_KEYS = {
+  events: 'mihorario_events_v1',
+  eventsUpdatedAt: 'mihorario_events_updated_at_v1',
+  settings: 'mihorario_settings_v2',
+  cloud: 'mihorario_cloud_v2',
+  // Claves de versiones anteriores (se migran a settings)
+  legacyGeminiKey: 'mihorario_gemini_key_v1',
+  legacyGroqKey: 'mihorario_groq_key_v1',
+} as const;
 
 // Helper para verificar si estamos en el cliente
 const isClient = typeof window !== 'undefined';
@@ -21,7 +26,11 @@ const isClient = typeof window !== 'undefined';
 async function safeGetItem<T>(key: string, fallback: T): Promise<T> {
   if (!isClient) return fallback;
   try {
-    const value = await localforage.getItem<T>(key);
+    // Si IndexedDB queda bloqueado (otra pestaña vieja, modo privado), no dejar la app cargando para siempre
+    const value = await Promise.race([
+      localforage.getItem<T>(key),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
+    ]);
     return value ?? fallback;
   } catch {
     return fallback;
@@ -33,30 +42,19 @@ async function safeSetItem(key: string, value: unknown): Promise<void> {
   try {
     await localforage.setItem(key, value);
   } catch {
-    // Silenciosamente fallar en SSR
+    // Silenciosamente fallar en SSR o en modo privado sin almacenamiento
   }
 }
 
 export const storage = {
-  // Eventos
-  getEvents: (): Promise<ScheduleEvent[]> => safeGetItem<ScheduleEvent[]>(STORAGE_KEY_EVENTS, []),
+  /** Eventos guardados, o null si el usuario nunca guardó nada (primera visita) */
+  getEvents: (): Promise<ScheduleEvent[] | null> => safeGetItem<ScheduleEvent[] | null>(STORAGE_KEYS.events, null),
 
-  setEvents: (events: ScheduleEvent[]): Promise<void> => safeSetItem(STORAGE_KEY_EVENTS, events),
+  setEvents: (events: ScheduleEvent[]): Promise<void> => safeSetItem(STORAGE_KEYS.events, events),
 
-  // API Key de Gemini
-  getApiKey: (): Promise<string> => safeGetItem<string>(STORAGE_KEY_APIKEY, ''),
+  getEventsUpdatedAt: (): Promise<number> => safeGetItem<number>(STORAGE_KEYS.eventsUpdatedAt, 0),
 
-  setApiKey: (key: string): Promise<void> => safeSetItem(STORAGE_KEY_APIKEY, key),
-
-  // Tema
-  getTheme: (): Promise<'light' | 'dark' | 'system'> => safeGetItem<'light' | 'dark' | 'system'>(STORAGE_KEY_THEME, 'system'),
-
-  setTheme: (theme: 'light' | 'dark' | 'system'): Promise<void> => safeSetItem(STORAGE_KEY_THEME, theme),
-
-  // Zona horaria
-  getTimezone: (): Promise<string> => safeGetItem<string>(STORAGE_KEY_TIMEZONE, Intl.DateTimeFormat().resolvedOptions().timeZone),
-
-  setTimezone: (timezone: string): Promise<void> => safeSetItem(STORAGE_KEY_TIMEZONE, timezone),
+  setEventsUpdatedAt: (timestamp: number): Promise<void> => safeSetItem(STORAGE_KEYS.eventsUpdatedAt, timestamp),
 
   // Limpiar todo
   clearAll: (): Promise<void> => {
@@ -68,4 +66,9 @@ export const storage = {
   getItem: <T>(key: string): Promise<T | null> => safeGetItem<T | null>(key, null),
 
   setItem: (key: string, value: unknown): Promise<void> => safeSetItem(key, value),
+
+  removeItem: (key: string): Promise<void> => {
+    if (!isClient) return Promise.resolve();
+    return localforage.removeItem(key).catch(() => {});
+  },
 };

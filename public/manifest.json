@@ -1,25 +1,21 @@
 {
+  "id": "/",
   "name": "MiHorario IA",
   "short_name": "MiHorario",
-  "description": "Calendario universitario y laboral con IA - Organiza tus horarios escaneando fotos",
+  "description": "Calendario universitario y laboral con IA: escanea tu horario, mira tus horas libres y recibe avisos antes de cada clase.",
+  "lang": "es",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#0f172a",
-  "theme_color": "#6366f1",
-  "orientation": "portrait-primary",
+  "background_color": "#020617",
+  "theme_color": "#4f46e5",
+  "orientation": "portrait",
   "icons": [
-    {
-      "src": "/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
-    }
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
   ],
   "categories": ["productivity", "education"],
   "shortcuts": [
@@ -28,15 +24,14 @@
       "short_name": "Escanear",
       "description": "Subir foto de horario para extraer eventos con IA",
       "url": "/?action=scan",
-      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
     },
     {
-      "name": "Ver agenda",
+      "name": "Ver agenda de hoy",
       "short_name": "Agenda",
       "description": "Ver agenda diaria y línea de tiempo",
       "url": "/?tab=agenda",
-      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
     }
   ]
 }
-

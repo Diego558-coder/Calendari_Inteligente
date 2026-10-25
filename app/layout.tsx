@@ -3,20 +3,32 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: 'MiHorario IA | Calendario Inteligente (Universidad + Trabajo)',
-  description: 'Organiza tu horario universitario y de trabajo escaneando fotos con IA gratuita de Gemini. Detecta tus horas libres y programa notificaciones.',
+  description: 'Organiza tu horario universitario y de trabajo escaneando fotos con IA gratuita. Detecta tus horas libres y recibe avisos en tu celular antes de cada clase.',
   manifest: '/manifest.json',
+  applicationName: 'MiHorario IA',
   icons: {
-    icon: '/icon.svg',
-    apple: '/icon.svg',
+    icon: [
+      { url: '/icon.svg', type: 'image/svg+xml' },
+      { url: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
+    ],
+    apple: [{ url: '/icons/apple-touch-icon.png', sizes: '180x180' }],
   },
+  // Necesario para que en iPhone se abra como app (y así pueda recibir notificaciones push)
+  appleWebApp: {
+    capable: true,
+    title: 'MiHorario',
+    statusBarStyle: 'black-translucent',
+  },
+  formatDetection: { telephone: false },
 };
 
 export const viewport: Viewport = {
-  themeColor: '#6366f1',
+  themeColor: '#0f172a',
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
+  viewportFit: 'cover',
 };
 
 export default function RootLayout({
@@ -26,24 +38,6 @@ export default function RootLayout({
 }) {
   return (
     <html lang="es" className="dark" suppressHydrationWarning>
-      <head>
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              (function() {
-                try {
-                  var theme = localStorage.getItem('theme') || 'system';
-                  var root = document.documentElement;
-                  var isDark = theme === 'system' 
-                    ? window.matchMedia('(prefers-color-scheme: dark)').matches 
-                    : theme === 'dark';
-                  root.classList.toggle('dark', isDark);
-                } catch (e) {}
-              })();
-            `,
-          }}
-        />
-      </head>
       <body className="bg-slate-950 text-slate-100 min-h-screen antialiased flex flex-col selection:bg-indigo-500 selection:text-white">
         {children}
         <script
@@ -51,14 +45,9 @@ export default function RootLayout({
             __html: `
               if ('serviceWorker' in navigator) {
                 window.addEventListener('load', function() {
-                  navigator.serviceWorker.register('/sw.js').then(
-                    function(registration) {
-                      console.log('ServiceWorker registrado con éxito:', registration.scope);
-                    },
-                    function(err) {
-                      console.log('Fallo en ServiceWorker:', err);
-                    }
-                  );
+                  navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(function(err) {
+                    console.warn('No se pudo registrar el service worker:', err);
+                  });
                 });
               }
             `,
@@ -68,4 +57,3 @@ export default function RootLayout({
     </html>
   );
 }
-

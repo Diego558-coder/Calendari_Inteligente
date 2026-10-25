@@ -2,18 +2,16 @@
 
 import React, { useState, useEffect } from 'react';
 import { DayOfWeek, EventType, ScheduleEvent } from '@/types/schedule';
-import { DAYS_OF_WEEK, generateGoogleCalendarUrl } from '@/lib/schedule-utils';
+import { DAYS_OF_WEEK, generateGoogleCalendarUrl, makeId, minutesToTime, timeToMinutes } from '@/lib/schedule-utils';
+import { EVENT_TYPES, EVENT_TYPE_STYLES, eventStyle } from '@/lib/event-styles';
 import { 
   X, 
   Trash2, 
   Save, 
   ExternalLink, 
-  GraduationCap, 
-  Briefcase, 
-  Clock, 
   MapPin, 
   User, 
-  FileText 
+  AlertCircle
 } from 'lucide-react';
 
 interface EventModalProps {
@@ -24,6 +22,7 @@ interface EventModalProps {
   onDelete?: (eventId: string) => void;
   initialDay?: DayOfWeek;
   initialStartTime?: string;
+  timezone?: string;
 }
 
 export const EventModal: React.FC<EventModalProps> = ({
@@ -34,6 +33,7 @@ export const EventModal: React.FC<EventModalProps> = ({
   onDelete,
   initialDay,
   initialStartTime,
+  timezone,
 }) => {
   const [title, setTitle] = useState('');
   const [type, setType] = useState<EventType>('university');
@@ -43,8 +43,10 @@ export const EventModal: React.FC<EventModalProps> = ({
   const [location, setLocation] = useState('');
   const [teacher, setTeacher] = useState('');
   const [notes, setNotes] = useState('');
+  const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
+    setFormError(null);
     if (event) {
       setTitle(event.title || '');
       setType(event.type || 'university');
@@ -60,9 +62,7 @@ export const EventModal: React.FC<EventModalProps> = ({
       setDayOfWeek(initialDay || 'lunes');
       setStartTime(initialStartTime || '08:00');
       // calcular endTime 2 horas después
-      const [h, m] = (initialStartTime || '08:00').split(':').map(Number);
-      const endH = Math.min(23, h + 2);
-      setEndTime(`${endH.toString().padStart(2, '0')}:${(m || 0).toString().padStart(2, '0')}`);
+      setEndTime(minutesToTime(timeToMinutes(initialStartTime || '08:00') + 120));
       setLocation('');
       setTeacher('');
       setNotes('');
@@ -74,12 +74,16 @@ export const EventModal: React.FC<EventModalProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) {
-      alert('Por favor escribe un título para la clase o turno.');
+      setFormError('Escribe un título para la clase o turno.');
+      return;
+    }
+    if (timeToMinutes(endTime) <= timeToMinutes(startTime)) {
+      setFormError('La hora de fin debe ser posterior a la hora de inicio.');
       return;
     }
 
     const updatedEvent: ScheduleEvent = {
-      id: event?.id || crypto.randomUUID(),
+      id: event?.id || makeId(),
       title: title.trim(),
       type,
       dayOfWeek,
@@ -94,7 +98,9 @@ export const EventModal: React.FC<EventModalProps> = ({
     onClose();
   };
 
-  const googleCalendarUrl = event ? generateGoogleCalendarUrl(event) : null;
+  const googleCalendarUrl = event ? generateGoogleCalendarUrl(event, timezone) : null;
+  const currentStyle = eventStyle(type);
+  const HeaderIcon = currentStyle.icon;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200" role="dialog" aria-modal="true" aria-labelledby="event-modal-title">
@@ -103,15 +109,12 @@ export const EventModal: React.FC<EventModalProps> = ({
         {/* Cabecera */}
         <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/60">
           <h2 id="event-modal-title" className="text-base font-bold text-white flex items-center gap-2">
-            {type === 'university' ? (
-              <GraduationCap className="w-5 h-5 text-indigo-400" />
-            ) : (
-              <Briefcase className="w-5 h-5 text-emerald-400" />
-            )}
+            <HeaderIcon className={`w-5 h-5 ${currentStyle.iconColor}`} />
             {event ? 'Editar Actividad' : 'Nueva Actividad'}
           </h2>
           <button
             onClick={onClose}
+            aria-label="Cerrar"
             className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
           >
             <X className="w-5 h-5" />
@@ -126,32 +129,25 @@ export const EventModal: React.FC<EventModalProps> = ({
             <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
               Tipo de Actividad
             </label>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setType('university')}
-                className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 transition-all ${
-                  type === 'university'
-                    ? 'border-indigo-500 bg-indigo-600/20 text-indigo-300'
-                    : 'border-slate-800 text-slate-400 hover:bg-slate-800/60'
-                }`}
-              >
-                <GraduationCap className="w-4 h-4 text-indigo-400" />
-                Universidad
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setType('work')}
-                className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 transition-all ${
-                  type === 'work'
-                    ? 'border-emerald-500 bg-emerald-600/20 text-emerald-300'
-                    : 'border-slate-800 text-slate-400 hover:bg-slate-800/60'
-                }`}
-              >
-                <Briefcase className="w-4 h-4 text-emerald-400" />
-                Trabajo
-              </button>
+            <div className="grid grid-cols-3 gap-2">
+              {EVENT_TYPES.map((option) => {
+                const style = EVENT_TYPE_STYLES[option];
+                const Icon = style.icon;
+                return (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => setType(option)}
+                    aria-pressed={type === option}
+                    className={`py-2 px-2 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
+                      type === option ? style.selected : 'border-slate-800 text-slate-400 hover:bg-slate-800/60'
+                    }`}
+                  >
+                    <Icon className={`w-4 h-4 ${style.iconColor}`} />
+                    {style.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -264,6 +260,13 @@ export const EventModal: React.FC<EventModalProps> = ({
               className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
             />
           </div>
+
+          {formError && (
+            <p role="alert" className="flex items-center gap-2 text-xs text-red-300 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              {formError}
+            </p>
+          )}
 
           {/* Enlace rápido a Google Calendar si ya existe */}
           {googleCalendarUrl && (

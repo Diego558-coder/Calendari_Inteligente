@@ -1,41 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { isKvConfigured } from '@/lib/kv';
+import { getProfile } from '@/lib/profile';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const CLOUD_STORAGE_BASE = 'https://api.restful-api.dev/objects';
+/** Indica si algún calendario (iPhone, Google…) ya consultó el feed de este perfil */
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  if (!isKvConfigured()) return NextResponse.json({ enrolled: false, mode: 'static' });
 
-export async function GET(
-  req: NextRequest,
-  { params }: { params: { id: string } }
-) {
   try {
-    const { id } = params;
-
-    if (!id) {
-      return NextResponse.json({ enrolled: false });
-    }
-
-    const res = await fetch(`${CLOUD_STORAGE_BASE}/${id}`, {
-      cache: 'no-store',
-      headers: { 'Content-Type': 'application/json' },
-    });
-
-    if (!res.ok) {
-      return NextResponse.json({ enrolled: false });
-    }
-
-    const record = await res.json();
-    const data = record?.data || {};
+    const profile = await getProfile((await params).id);
+    if (!profile) return NextResponse.json({ enrolled: false, mode: 'live', found: false });
 
     return NextResponse.json({
-      enrolled: Boolean(data.enrolled || data.lastSubscriberPing),
-      lastPing: data.lastSubscriberPing || null,
-      userAgent: data.subscriberUserAgent || null,
-      totalEvents: data.events?.length || 0,
-      updatedAt: data.updatedAt || null,
+      enrolled: Boolean(profile.feed),
+      lastPing: profile.feed?.lastPing ?? null,
+      client: profile.feed?.client ?? null,
+      totalEvents: profile.events.length,
+      updatedAt: profile.updatedAt,
+      pushDevices: profile.push.length,
+      mode: 'live',
+      found: true,
     });
   } catch (err: any) {
-    return NextResponse.json({ enrolled: false, error: err.message });
+    console.error('Error consultando estado del calendario:', err);
+    return NextResponse.json({ enrolled: false, error: 'No se pudo consultar el estado' }, { status: 500 });
   }
 }

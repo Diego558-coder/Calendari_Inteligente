@@ -3,6 +3,7 @@
 import React from 'react';
 import { AlertTriangle, Sparkles } from 'lucide-react';
 import { ScheduleConflict, ScheduleEvent } from '@/types/schedule';
+import { EVENT_TYPES, EVENT_TYPE_STYLES } from '@/lib/event-styles';
 
 interface CalendarControlsProps {
   events: ScheduleEvent[];
@@ -23,16 +24,18 @@ export const CalendarControls: React.FC<CalendarControlsProps> = ({
 }) => {
   return (
     <div className="p-4 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 bg-slate-900/90">
-      <div className="flex items-center gap-2">
-        <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-500/15 border border-indigo-500/30 text-xs font-semibold text-indigo-300">
-          <span className="w-2 h-2 rounded-full bg-indigo-400"></span>
-          Universidad ({events.filter((e) => e.type === 'university').length})
-        </div>
-
-        <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-xs font-semibold text-emerald-300">
-          <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-          Trabajo ({events.filter((e) => e.type === 'work').length})
-        </div>
+      <div className="flex flex-wrap items-center gap-2">
+        {EVENT_TYPES.map((type) => {
+          const count = events.filter((e) => e.type === type).length;
+          if (type === 'personal' && count === 0) return null;
+          const style = EVENT_TYPE_STYLES[type];
+          return (
+            <div key={type} className={`flex items-center gap-1.5 px-3 py-1 rounded-full border text-xs font-semibold ${style.chip}`}>
+              <span className={`w-2 h-2 rounded-full ${style.dot}`}></span>
+              {style.label} ({count})
+            </div>
+          );
+        })}
 
         {conflicts.length > 0 && (
           <div className="flex items-center gap-1 px-3 py-1 rounded-full bg-red-500/15 border border-red-500/30 text-xs font-semibold text-red-400 animate-pulse">

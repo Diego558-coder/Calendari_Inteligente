@@ -10,11 +10,12 @@ export function useKeyboardShortcuts(
 ) {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ignorar si el usuario está escribiendo en un input/textarea
+      // Ignorar si el usuario está escribiendo en un input/textarea/select o usando atajos del sistema
       const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable) {
         return;
       }
+      if (e.altKey || ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() !== 's')) return;
 
       switch (e.key.toLowerCase()) {
         case 'n':
@@ -34,11 +35,6 @@ export function useKeyboardShortcuts(
         case 't':
           e.preventDefault();
           onToday();
-          break;
-        case 'k':
-        case '/':
-          e.preventDefault();
-          // Focus search if exists
           break;
       }
     };

@@ -1,65 +1,59 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { ScheduleEvent } from '@/types/schedule';
 import { storage } from '@/lib/storage';
-import { DEMO_EVENTS } from '@/lib/demo-data';
+import { sanitizeEvents } from '@/lib/schedule-utils';
 
 export function useEvents() {
   const [events, setEvents] = useState<ScheduleEvent[]>([]);
+  const [updatedAt, setUpdatedAt] = useState(0);
   const [isLoaded, setIsLoaded] = useState(false);
+  const eventsRef = useRef<ScheduleEvent[]>([]);
 
   // Cargar datos de IndexedDB
   useEffect(() => {
     let mounted = true;
     const loadData = async () => {
-      if (typeof window !== 'undefined') {
-        try {
-          const savedEvents = await storage.getEvents();
-          if (mounted) {
-            if (savedEvents.length > 0) {
-              setEvents(savedEvents);
-            } else {
-              setEvents(DEMO_EVENTS);
-            }
-          }
-        } catch {
-          if (mounted) setEvents(DEMO_EVENTS);
-        } finally {
-          if (mounted) setIsLoaded(true);
+      try {
+        const [savedEvents, savedUpdatedAt] = await Promise.all([storage.getEvents(), storage.getEventsUpdatedAt()]);
+        if (mounted) {
+          const clean = sanitizeEvents(savedEvents || []);
+          eventsRef.current = clean;
+          setEvents(clean);
+          setUpdatedAt(savedUpdatedAt);
         }
+      } finally {
+        if (mounted) setIsLoaded(true);
       }
     };
     loadData();
     return () => { mounted = false; };
   }, []);
 
-  // Guardar en IndexedDB cada vez que cambien los eventos
-  const updateEvents = useCallback(async (newEvents: ScheduleEvent[]) => {
+  /**
+   * Reemplaza todos los eventos y los guarda.
+   * `remoteUpdatedAt` se usa cuando los datos vienen de otro dispositivo (conserva su marca de tiempo).
+   */
+  const updateEvents = useCallback(async (newEvents: ScheduleEvent[], remoteUpdatedAt?: number) => {
+    const stamp = remoteUpdatedAt ?? Date.now();
+    eventsRef.current = newEvents;
     setEvents(newEvents);
-    if (typeof window !== 'undefined') {
-      await storage.setEvents(newEvents);
-    }
+    setUpdatedAt(stamp);
+    await Promise.all([storage.setEvents(newEvents), storage.setEventsUpdatedAt(stamp)]);
   }, []);
 
-  const loadDemoData = useCallback(async () => {
-    await updateEvents(DEMO_EVENTS);
-  }, [updateEvents]);
-
-  const clearAllData = useCallback(async () => {
-    await updateEvents([]);
-  }, [updateEvents]);
-
-  const importEvents = useCallback(async (imported: ScheduleEvent[]) => {
-    await updateEvents(imported);
-  }, [updateEvents]);
+  /** Versión funcional: calcula el nuevo estado a partir del actual (evita cierres obsoletos) */
+  const modifyEvents = useCallback(
+    (modifier: (current: ScheduleEvent[]) => ScheduleEvent[]) => updateEvents(modifier(eventsRef.current)),
+    [updateEvents]
+  );
 
   return {
     events,
+    updatedAt,
     isLoaded,
     updateEvents,
-    loadDemoData,
-    clearAllData,
-    importEvents,
+    modifyEvents,
   };
 }

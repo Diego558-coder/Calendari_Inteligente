@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "test": "tsx tests/logic.test.ts && tsx tests/ai.test.ts"
   },
   "dependencies": {
     "canvas-confetti": "^1.9.4",
@@ -14,20 +14,30 @@
     "date-fns": "^3.6.0",
     "localforage": "^1.10.0",
     "lucide-react": "^0.475.0",
-    "next": "14.2.18",
-    "next-pwa": "^5.6.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "tailwind-merge": "^2.5.5"
+    "next": "^15.5.28",
+    "qrcode": "^1.5.4",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tailwind-merge": "^2.5.5",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@types/canvas-confetti": "^1.9.0",
     "@types/node": "^20.17.19",
-    "@types/react": "^18.3.18",
-    "@types/react-dom": "^18.3.5",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/web-push": "^3.6.4",
     "autoprefixer": "^10.4.20",
-    "postcss": "^8.4.49",
+    "postcss": "^8.5.28",
     "tailwindcss": "^3.4.17",
+    "tsx": "^4.20.6",
     "typescript": "^5.7.3"
+  },
+  "overrides": {
+    "next": {
+      "postcss": "$postcss"
+    },
+    "source-map-js": "^1.2.2"
   }
 }

@@ -1,84 +1,53 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateICS } from '@/lib/schedule-utils';
-import { ScheduleEvent } from '@/types/schedule';
-import { getUserTimezone } from '@/lib/timezone';
+import { isKvConfigured } from '@/lib/kv';
+import { decodeStaticToken, describeCalendarClient, getProfile, saveProfile, STATIC_TOKEN_PREFIX } from '@/lib/profile';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const CLOUD_STORAGE_BASE = 'https://api.restful-api.dev/objects';
+// Registrar la conexión del calendario como máximo cada 30 min para ahorrar escrituras
+const PING_THROTTLE_MS = 30 * 60 * 1000;
 
-export async function GET(
-  req: NextRequest,
-  { params }: { params: { id: string } }
-) {
+/**
+ * Feed iCalendar al que se suscribe Apple Calendar / Google Calendar.
+ * Acepta `/api/calendar/feed/<perfil>.ics` (se actualiza solo) o `/api/calendar/feed/s_<token>.ics` (copia fija).
+ */
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { id } = params;
+    const id = decodeURIComponent((await params).id || '').replace(/\.ics$/i, '');
+    if (!id) return new NextResponse('ID de suscripción requerido', { status: 400 });
 
-    if (!id) {
-      return new NextResponse('ID de suscripción requerido', { status: 400 });
-    }
+    let ics: string;
 
-    const res = await fetch(`${CLOUD_STORAGE_BASE}/${id}`, {
-      cache: 'no-store',
-      headers: { 'Content-Type': 'application/json' },
-    });
-
-    let events: ScheduleEvent[] = [];
-    let existingData: any = {};
-
-    if (res.ok) {
-      const record = await res.json();
-      existingData = record?.data || {};
-      events = existingData?.events || [];
-
-      const userAgent = req.headers.get('user-agent') || 'Dispositivo Apple / Safari';
-      fetch(`${CLOUD_STORAGE_BASE}/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: 'MiHorario_Sync',
-          data: {
-            ...existingData,
-            lastSubscriberPing: Date.now(),
-            subscriberUserAgent: userAgent,
-            enrolled: true,
-          },
-        }),
-      }).catch((error) => console.warn('No se pudo registrar ping de dispositivo:', error));
+    if (id.startsWith(STATIC_TOKEN_PREFIX)) {
+      const data = decodeStaticToken(id);
+      if (!data) return new NextResponse('Enlace de calendario no válido', { status: 404 });
+      ics = generateICS(data.events, { alarmMinutes: data.alarmMinutes, timezone: data.timezone });
     } else {
-      console.warn(`No se encontró el feed de calendario para ID: ${id}`);
+      if (!isKvConfigured()) return new NextResponse('El servidor no tiene base de datos configurada', { status: 503 });
+      const profile = await getProfile(id);
+      if (!profile) return new NextResponse('Calendario no encontrado', { status: 404 });
+
+      ics = generateICS(profile.events, { alarmMinutes: profile.alarmMinutes, timezone: profile.timezone });
+
+      const client = describeCalendarClient(req.headers.get('user-agent') || '');
+      if (client && (!profile.feed || Date.now() - profile.feed.lastPing > PING_THROTTLE_MS || profile.feed.client !== client)) {
+        profile.feed = { lastPing: Date.now(), client };
+        await saveProfile(profile).catch((error) => console.warn('No se pudo registrar la conexión del calendario:', error));
+      }
     }
 
-    const userTimezone = getUserTimezone();
-    const baseIcs = generateICS(events, 60);
-    // Mejorar compatibilidad con Apple Calendar / iOS
-    const enhancedIcs = baseIcs
-      .replace(
-        `X-WR-TIMEZONE:${userTimezone}`,
-        `X-WR-TIMEZONE:${userTimezone}\r\nX-PUBLISHED-TTL:PT1H\r\nREFRESH-INTERVAL;VALUE=DURATION:PT1H\r\nX-APPLE-CALENDAR-COLOR:#6366f1`
-      )
-      // Asegurar que las alarmas sean VALARM con TRIGGER correcto para iOS
-      .replace(/BEGIN:VALARM[\s\S]*?END:VALARM/g, (match) => {
-        // Asegurar que el trigger sea relativo y correcto
-        return match.replace(/TRIGGER:-PT(\d+)M/, 'TRIGGER;RELATED=START:-PT$1M');
-      });
-
-    return new NextResponse(enhancedIcs, {
+    return new NextResponse(ics, {
       status: 200,
       headers: {
         'Content-Type': 'text/calendar; charset=utf-8',
         'Content-Disposition': 'inline; filename="mihorario.ics"',
         'Cache-Control': 'no-cache, no-store, max-age=0, must-revalidate',
-        Pragma: 'no-cache',
-        Expires: '0',
-        // Headers importantes para Apple Calendar
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET',
-        'Access-Control-Allow-Headers': 'Content-Type',
       },
     });
-  } catch (err: any) {
+  } catch (err) {
     console.error('Error generando feed de calendario:', err);
     return new NextResponse('Error al generar calendario', { status: 500 });
   }

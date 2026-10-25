@@ -1,37 +1,45 @@
 'use client';
 
 import React, { useState, useRef } from 'react';
-import { 
-  Upload, 
-  Camera, 
-  Sparkles, 
-  X, 
-  CheckCircle2, 
-  AlertCircle, 
-  GraduationCap, 
-  Briefcase, 
-  Loader2, 
-  Trash2, 
-  Clock, 
-  MapPin, 
-  User 
+import {
+  Upload,
+  Camera,
+  Sparkles,
+  X,
+  CheckCircle2,
+  AlertCircle,
+  GraduationCap,
+  Briefcase,
+  Loader2,
+  Trash2,
+  Clock,
+  MapPin,
+  User,
+  Settings as SettingsIcon
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { EventType, ScheduleEvent } from '@/types/schedule';
 import { DAYS_OF_WEEK } from '@/lib/schedule-utils';
+import { eventStyle } from '@/lib/event-styles';
 
 interface PhotoUploaderProps {
   isOpen: boolean;
   onClose: () => void;
   onEventsExtracted: (newEvents: ScheduleEvent[]) => void;
-  userApiKey?: string;
+  geminiKey?: string;
+  groqKey?: string;
+  onOpenSettings: () => void;
 }
+
+const PROVIDER_LABELS: Record<string, string> = { gemini: 'Google Gemini', groq: 'Groq' };
 
 export const PhotoUploader: React.FC<PhotoUploaderProps> = ({
   isOpen,
   onClose,
   onEventsExtracted,
-  userApiKey,
+  geminiKey,
+  groqKey,
+  onOpenSettings,
 }) => {
   const [scheduleType, setScheduleType] = useState<EventType>('university');
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -39,7 +47,10 @@ export const PhotoUploader: React.FC<PhotoUploaderProps> = ({
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisStatus, setAnalysisStatus] = useState<string>('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
   const [extractedEvents, setExtractedEvents] = useState<ScheduleEvent[] | null>(null);
+  const [readBy, setReadBy] = useState<string | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -55,6 +66,7 @@ export const PhotoUploader: React.FC<PhotoUploaderProps> = ({
 
   const processSelectedFile = (file: File) => {
     setErrorMsg(null);
+    setErrorCode(null);
     setExtractedEvents(null);
     setImageFile(file);
 
@@ -64,7 +76,8 @@ export const PhotoUploader: React.FC<PhotoUploaderProps> = ({
       const rawDataUrl = event.target?.result as string;
       const img = new Image();
       img.onload = () => {
-        const MAX_DIM = 1800;
+        // 1600 px basta para leer texto y mantiene la petición liviana (más rápida con datos móviles)
+        const MAX_DIM = 1600;
         let width = img.width;
         let height = img.height;
 
@@ -83,8 +96,11 @@ export const PhotoUploader: React.FC<PhotoUploaderProps> = ({
         canvas.height = height;
         const ctx = canvas.getContext('2d');
         if (ctx) {
+          // Fondo blanco: las capturas PNG con transparencia se verían negras al pasar a JPEG
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, width, height);
           ctx.drawImage(img, 0, 0, width, height);
-          const optimizedDataUrl = canvas.toDataURL('image/jpeg', 0.88);
+          const optimizedDataUrl = canvas.toDataURL('image/jpeg', 0.85);
           setImagePreview(optimizedDataUrl);
         } else {
           setImagePreview(rawDataUrl);
@@ -111,48 +127,47 @@ export const PhotoUploader: React.FC<PhotoUploaderProps> = ({
 
     setIsAnalyzing(true);
     setErrorMsg(null);
-    setAnalysisStatus('Iniciando visión artificial con Gemini Flash...');
+    setErrorCode(null);
+    setWarnings([]);
+    setAnalysisStatus('Preparando la imagen...');
+
+    const statusUpdates = [
+      'Enviando imagen a la IA...',
+      'Escaneando días, asignaturas y turnos...',
+      'Extrayendo horas de inicio y fin...',
+      'Normalizando bloques semanales...',
+      'Revisando que no falte nada...',
+    ];
+    let updateIndex = 0;
+    const interval = setInterval(() => {
+      if (updateIndex < statusUpdates.length) {
+        setAnalysisStatus(statusUpdates[updateIndex]);
+        updateIndex++;
+      }
+    }, 1800);
 
     try {
-      const statusUpdates = [
-        'Enviando imagen a Gemini...',
-        'Escaneando días, asignaturas y turnos...',
-        'Extrayendo horas de inicio y fin...',
-        'Normalizando bloques semanales...',
-      ];
-
-      let updateIndex = 0;
-      const interval = setInterval(() => {
-        if (updateIndex < statusUpdates.length) {
-          setAnalysisStatus(statusUpdates[updateIndex]);
-          updateIndex++;
-        }
-      }, 1400);
-
       const response = await fetch('/api/analyze-schedule', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           imageBase64: imagePreview,
-          mimeType: imageFile?.type || 'image/jpeg',
           scheduleType: scheduleType,
-          apiKey: userApiKey || undefined,
+          geminiKey: geminiKey || undefined,
+          groqKey: groqKey || undefined,
         }),
       });
 
-      clearInterval(interval);
-
-      const data = await response.json();
+      const data = await response.json().catch(() => ({ success: false, error: 'El servidor no respondió correctamente. Intenta de nuevo.' }));
 
       if (!response.ok || !data.success) {
+        setErrorCode(data.code || null);
         throw new Error(data.error || 'No se pudieron extraer los horarios de la imagen.');
       }
 
-      if (!data.events || data.events.length === 0) {
-        throw new Error('No se detectaron clases ni turnos en la foto. Intenta con una imagen más clara o enfocada.');
-      }
-
       setExtractedEvents(data.events);
+      setReadBy(data.provider ? `${PROVIDER_LABELS[data.provider] || data.provider}${data.model ? ` · ${data.model}` : ''}` : null);
+      setWarnings(Array.isArray(data.warnings) ? data.warnings : []);
       confetti({
         particleCount: 80,
         spread: 70,
@@ -160,8 +175,9 @@ export const PhotoUploader: React.FC<PhotoUploaderProps> = ({
       });
     } catch (err: any) {
       console.error(err);
-      setErrorMsg(err.message || 'Error al conectar con la IA de Gemini');
+      setErrorMsg(err.message === 'Failed to fetch' ? 'Sin conexión a internet. Revisa tu red e intenta de nuevo.' : err.message || 'Error al conectar con la IA');
     } finally {
+      clearInterval(interval);
       setIsAnalyzing(false);
     }
   };
@@ -184,13 +200,16 @@ export const PhotoUploader: React.FC<PhotoUploaderProps> = ({
     setImagePreview(null);
     setExtractedEvents(null);
     setErrorMsg(null);
+    setErrorCode(null);
+    setWarnings([]);
+    setReadBy(null);
     setIsAnalyzing(false);
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200" role="dialog" aria-modal="true" aria-labelledby="photo-uploader-title">
       <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
-        
+
         {/* Cabecera del modal */}
         <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/60">
           <div className="flex items-center gap-2.5">
@@ -204,6 +223,7 @@ export const PhotoUploader: React.FC<PhotoUploaderProps> = ({
           </div>
           <button
             onClick={onClose}
+            aria-label="Cerrar"
             className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
           >
             <X className="w-5 h-5" />
@@ -212,7 +232,7 @@ export const PhotoUploader: React.FC<PhotoUploaderProps> = ({
 
         {/* Contenido scrolleable */}
         <div className="p-6 overflow-y-auto space-y-5 flex-1">
-          
+
           {/* Selector de Tipo de Horario */}
           {!extractedEvents && (
             <div>
@@ -352,10 +372,15 @@ export const PhotoUploader: React.FC<PhotoUploaderProps> = ({
               <div>
                 <p className="font-semibold text-red-200">No se pudo procesar la imagen</p>
                 <p className="mt-0.5">{errorMsg}</p>
-                {errorMsg.includes('API') && (
-                  <p className="mt-2 text-xs text-slate-400">
-                    Puedes agregar tu propia clave gratuita de Gemini en ⚙️ <strong>Ajustes</strong> arriba a la derecha.
-                  </p>
+                {(errorCode === 'NO_KEY' || errorCode === 'INVALID_KEY' || errorCode === 'QUOTA') && (
+                  <button
+                    type="button"
+                    onClick={onOpenSettings}
+                    className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 px-3 py-1.5 text-xs font-semibold text-slate-200 border border-slate-700"
+                  >
+                    <SettingsIcon className="w-3.5 h-3.5" />
+                    Abrir Ajustes de IA
+                  </button>
                 )}
               </div>
             </div>
@@ -367,7 +392,7 @@ export const PhotoUploader: React.FC<PhotoUploaderProps> = ({
               <Loader2 className="w-5 h-5 text-indigo-400 animate-spin shrink-0" />
               <div className="flex-1">
                 <p className="font-semibold text-indigo-300">{analysisStatus}</p>
-                <p className="text-xs text-slate-400 mt-0.5">Gemini Vision está leyendo las celdas, materias y turnos...</p>
+                <p className="text-xs text-slate-400 mt-0.5">La IA está leyendo las celdas, materias y turnos (puede tardar hasta 30 s)...</p>
               </div>
             </div>
           )}
@@ -384,28 +409,23 @@ export const PhotoUploader: React.FC<PhotoUploaderProps> = ({
                 </div>
                 <span className="text-xs text-slate-400">Revisa o elimina antes de guardar</span>
               </div>
+              {readBy && <p className="text-[11px] text-slate-500">Leído con {readBy}</p>}
+              {warnings.map((warning) => (
+                <p key={warning} className="text-[11px] text-amber-300/90 bg-amber-500/10 border border-amber-500/20 rounded-lg px-2.5 py-1.5">{warning}</p>
+              ))}
 
               <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
                 {extractedEvents.map((ev) => {
                   const dayObj = DAYS_OF_WEEK.find((d) => d.key === ev.dayOfWeek);
+                  const style = eventStyle(ev.type);
                   return (
                     <div
                       key={ev.id}
-                      className={`p-3 rounded-xl border flex items-center justify-between gap-3 ${
-                        ev.type === 'university'
-                          ? 'border-indigo-500/30 bg-indigo-950/20'
-                          : 'border-emerald-500/30 bg-emerald-950/20'
-                      }`}
+                      className={`p-3 rounded-xl border flex items-center justify-between gap-3 ${style.preview}`}
                     >
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
-                          <span
-                            className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
-                              ev.type === 'university'
-                                ? 'bg-indigo-500/20 text-indigo-300'
-                                : 'bg-emerald-500/20 text-emerald-300'
-                            }`}
-                          >
+                          <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${style.badge}`}>
                             {dayObj?.label || ev.dayOfWeek}
                           </span>
                           <span className="text-xs text-slate-400 flex items-center gap-1 font-mono">
